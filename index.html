@@ -6,8 +6,10 @@
 <title>AERO-TUNNEL — Lattice-Boltzmann Wind Tunnel</title>
 
 <style>
+/* Font imports and the full page styling live in this file so the demo stays portable. */
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
+/* Theme variables used across the tunnel UI. */
 :root{
   --ink:#05080f;
   --panel:#0b101c;
@@ -20,6 +22,7 @@
   --green:#6fe8a8;
 }
 
+/* Basic reset to keep sizing predictable across browsers. */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{
   background:var(--ink);
@@ -65,6 +68,7 @@ h1 .tick{color:var(--amber)}
 }
 .credit b{color:var(--amber);font-weight:600}
 
+/* Main grid: simulation on the left, info cards on the right. */
 .layout{
   display:grid;
   grid-template-columns:minmax(0,1fr) 300px;
@@ -85,6 +89,7 @@ h1 .tick{color:var(--amber)}
   position:sticky;
   top:14px;
 }
+/* Collapse the side panel under the tunnel on smaller screens. */
 @media (max-width:1100px){
   .layout{grid-template-columns:1fr}
   .side{position:static;flex-direction:row;flex-wrap:wrap}
@@ -124,6 +129,7 @@ h1 .tick{color:var(--amber)}
   #nacaIn{font-size:16px}
 }
 
+/* Simulation stage holds the flow field, smoke layer, body layer, and HUD. */
 .stage{
   position:relative;
   width:100%;
@@ -148,6 +154,7 @@ h1 .tick{color:var(--amber)}
     linear-gradient(to bottom, rgba(120,170,255,.05), transparent 12%, transparent 88%, rgba(0,0,0,.35));
 }
 
+/* HUD values are placed over the canvas but do not capture mouse/touch input. */
 .hud{
   position:absolute;
   font-family:'IBM Plex Mono',monospace;
@@ -194,6 +201,7 @@ h1 .tick{color:var(--amber)}
   pointer-events:none;
 }
 
+/* Control panel for body selection, flow settings, rendering, and export. */
 .panel{
   width:100%;
   background:var(--panel);
@@ -308,6 +316,7 @@ h1 .tick{color:var(--amber)}
   white-space:nowrap;
 }
 
+/* Side cards explain controls, flow status, and unit reading. */
 .card{
   background:var(--panel);
   border:1px solid var(--line);
@@ -351,6 +360,7 @@ kbd{
 .card .handle{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cyan)}
 .card p{font-size:12px;line-height:1.6;color:var(--dim)}
 
+/* Live charts sit below the controls and update from the force history. */
 .charts{
   display:flex;
   flex-wrap:wrap;
@@ -395,6 +405,7 @@ footer{
 }
 footer b{color:#9fb2d2;font-weight:500}
 
+/* Respect users who prefer less animation. */
 @media (prefers-reduced-motion:reduce){
   .chip{transition:none;transform:none}
   #regv.warn{animation:none}
@@ -404,6 +415,7 @@ footer b{color:#9fb2d2;font-weight:500}
 </head>
 
 <body>
+<!-- Top title and short description for the app. -->
 <header>
   <h1>AERO<span class="tick">·</span>TUNNEL</h1>
   <div class="sub">lattice-boltzmann smoke tunnel — d2q9 / bgk + eddy-viscosity stabilisation</div>
@@ -413,20 +425,23 @@ footer b{color:#9fb2d2;font-weight:500}
 <div class="layout">
 <div class="main">
 
+<!-- Main wind-tunnel viewport. The canvases are layered: field, smoke, then body. -->
+
 <div class="stage" id="stage">
   <canvas id="field" width="1040" height="440"></canvas>
   <canvas id="smoke" width="1040" height="440"></canvas>
   <canvas id="body"  width="1040" height="440"></canvas>
   <div class="vig"></div>
 
+  <!-- Left HUD: live aerodynamic coefficients and flow regime. -->
   <div class="hud tl">
     <div class="row"><span class="lab">LIFT&nbsp;C<sub>L</sub>&nbsp;</span><span class="val" id="clv">0.00</span></div>
     <div class="row"><span class="lab">DRAG&nbsp;C<sub>D</sub>&nbsp;</span><span class="val" id="cdv">0.00</span></div>
     <div class="row"><span class="lab">L/D&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="val amber" id="ldv">—</span></div>
     <div class="row"><span class="lab">FLOW&nbsp;&nbsp;&nbsp;</span><span class="val" id="regv" style="font-size:12px">—</span></div>
-    <div class="row note">qualitative browser-LBM estimates — trends only</div>
   </div>
 
+  <!-- Right HUD: selected body, Reynolds number, Strouhal number, and FPS. -->
   <div class="hud tr">
     <div class="row"><span class="val amber" id="bodyv" style="font-size:11px">NACA 0012 · α 6.0°</span></div>
     <div class="row"><span class="lab">Re </span><span class="val amber" id="rev">0</span></div>
@@ -438,7 +453,9 @@ footer b{color:#9fb2d2;font-weight:500}
   <div id="hint"></div>
 </div>
 
+<!-- User controls for the simulation and exported outputs. -->
 <div class="panel">
+  <!-- Choose the test body or enter a custom 4-digit NACA airfoil. -->
   <div class="prow">
     <span class="plabel">Test body</span>
     <div class="chips" id="bodies" role="group" aria-label="Test body selection">
@@ -453,6 +470,7 @@ footer b{color:#9fb2d2;font-weight:500}
     </div>
   </div>
 
+  <!-- Angle of attack and inlet speed directly affect the flow and force estimates. -->
   <div class="prow">
     <span class="plabel">Angle&nbsp;α</span>
     <div class="slider">
@@ -501,6 +519,7 @@ footer b{color:#9fb2d2;font-weight:500}
     </div>
   </div>
 
+  <!-- Rendering modes change only the display, not the solver. -->
   <div class="prow">
     <span class="plabel">Render</span>
     <div class="chips">
@@ -529,13 +548,14 @@ footer b{color:#9fb2d2;font-weight:500}
       <button type="button" class="chip" data-q="high" aria-pressed="false">HIGH</button>
     </div>
 
-    <span class="plabel">Export</span>
+    <span class="plabel" style="margin-left:10px">Export</span>
     <div class="chips">
       <button type="button" class="chip" id="btnShot">SNAPSHOT PNG</button>
       <button type="button" class="chip" id="btnCsv">LIFT CURVE CSV</button>
     </div>
   </div>
 
+  <!-- Live plots for lift curve and force history. -->
   <div class="charts">
     <div class="chart">
       <div class="polarhead">
@@ -557,6 +577,7 @@ footer b{color:#9fb2d2;font-weight:500}
 
 </div>
 
+<!-- Reference cards kept beside the tunnel on desktop and below it on mobile. -->
 <aside class="side">
   <div class="card">
     <h2>Keyboard controls</h2>
@@ -570,6 +591,20 @@ footer b{color:#9fb2d2;font-weight:500}
     <div class="keyrow"><span class="what">Paint smoke</span><span class="how">click / drag tunnel</span></div>
   </div>
 
+  <!-- LIVE lu → m/s CONVERTER -->
+<div class="card">
+  <h2>Live lu → m/s</h2>
+
+  <div style="display:flex;align-items:center;gap:8px;margin:10px 0 4px">
+
+<input id="vref" type="hidden" value="30" min="0" step="1">
+  </div>
+  <p style="font-size:15px;color:var(--amber);font-family:'IBM Plex Mono',monospace;margin-top:8px">
+    <span id="liveLu">0.100</span> lu → <span id="liveMs" style="color:#e8eefa">30.0</span> m/s
+  </p>
+  <p style="margin-top:4px;color:rgba(140,160,190,.6)"></p>
+</div>
+
   <div class="card">
     <h2>Flow status</h2>
     <div class="keyrow"><span class="what" style="color:var(--green)">STABLE FLOW</span><span class="how">attached</span></div>
@@ -578,20 +613,9 @@ footer b{color:#9fb2d2;font-weight:500}
     <div class="keyrow"><span class="what" style="color:var(--rose)">POST-STALL</span><span class="how">separated wake</span></div>
     <div class="keyrow"><span class="what" style="color:var(--cyan)">VORTEX SHEDDING</span><span class="how">bluff-body wake</span></div>
   </div>
-
-  <div class="card">
-    <h2>Reading the units</h2>
-    <p>Everything here runs in <span class="name">lattice units (lu)</span>. A grid cell is the length unit (Δx = 1) and one solver step is the time unit (Δt = 1), so <span class="handle">u₀</span> is simply <b style="color:#9fb2d2">cells per step</b> — the inlet velocity.</p>
-    <p style="margin-top:9px">Keep u₀ around <span class="handle">0.02 – 0.20</span>. Lower looks sluggish; above ≈ 0.20 the compressibility error grows and the flow can blow up. What really sets the flow character is the dimensionless <span class="handle">Reynolds number</span> Re = u₀·L / ν, shown live in the HUD — not any m/s figure.</p>
-    <p style="margin-top:9px"><b style="color:#9fb2d2">→ Converting to m/s.</b> Pick one real speed you want a reference u₀ to mean. Then:</p>
-    <p style="margin-top:5px;color:var(--cyan);font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.7">v[m/s] = u₀ × (V_ref / u₀_ref)</p>
-    <p style="margin-top:5px"><b style="color:#9fb2d2">Example:</b> decide that u₀ = 0.10 lu represents 30 m/s. Then u₀ = 0.05 → 15 m/s and u₀ = 0.20 → 60 m/s. Pick any V_ref you like — the physics is identical, only the label changes.</p>
-    <p style="margin-top:9px;color:rgba(140,160,190,.6)">More rigorously: if a cell is Δx metres and a step is Δt seconds, then v = u₀·(Δx/Δt). Match Δx to your body size and Δt to hit the Reynolds number you care about.</p>
-  </div>
-
   <div class="card">
     <h2>About</h2>
-    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle">@SarujanSrikaran</span>. The solver runs entirely in lattice units, and so does the display — see "Reading the units" for how to map u₀ to m/s if you want a physical speed.</p>
+    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle"></span>The solver runs entirely in <b>"lattice units"</b>, and so does the display — see "Reading the units" for how to map u₀ to m/s if you want a physical speed.</p>
   </div>
 </aside>
 </div>
@@ -600,24 +624,31 @@ footer b{color:#9fb2d2;font-weight:500}
   <b>The physics:</b> D2Q9 Lattice-Boltzmann with BGK collision plus <b>Smagorinsky-style eddy-viscosity stabilisation</b>. 
   All velocities are shown in <b>lattice units (lu)</b> — the inlet u₀ is cells per step. 
   The stable band is roughly <b>0.02–0.20 lu</b>; see the "Reading the units" card for the lu → m/s conversion. This is a low-Mach educational LBM solver.
-  <br><b>Built by Sarujan Srikaran · @SarujanSrikaran</b>
+  <br>
+  <p style="text-align:center"><b>Feedback is appreciated!, The whole source file is hosted in my github account.</b></p>
+  <p style="text-align:center"><b>Built by Sarujan Srikaran</b></p>
 </footer>
 
 <script>
 'use strict';
 
+// Keep JavaScript strict so accidental globals are caught early.
+
 /* ================= LBM CORE ================= */
+// Solver grid size. The display canvas is larger, but the physics runs on this grid.
 const xdim = 260, ydim = 110;
 const N = xdim * ydim;
 const four9 = 4/9, one9 = 1/9, one36 = 1/36;
 
+// Distribution functions for the D2Q9 lattice directions.
 const n0 = new Float32Array(N), nN_ = new Float32Array(N), nS = new Float32Array(N),
       nE = new Float32Array(N), nW = new Float32Array(N),
       nNE = new Float32Array(N), nSE = new Float32Array(N),
       nNW = new Float32Array(N), nSW = new Float32Array(N);
 
+// Macroscopic density and velocity fields, calculated from the distributions.
 const rho = new Float32Array(N), ux = new Float32Array(N), uy = new Float32Array(N);
-const bar = new Uint8Array(N);
+const bar = new Uint8Array(N); // Solid cells: 1 = obstacle/body, 0 = fluid.
 let barList = [];
 
 /*
@@ -639,6 +670,7 @@ let nuSlider = 0.014;
 let tauBase = 3*nu + 0.5;
 const Cs2 = 0.03;
 
+// Viscosity floor table used to stop high-angle/high-speed cases from exploding.
 const NUF_U = [0.08, 0.10, 0.12, 0.15];
 const NUF_A = [0, 15, 25, 35, 45];
 const NUF_T = [
@@ -665,6 +697,7 @@ function nuFloorRaw(u, A){
        + (NUF_T[iu][ia+1]*(1-tu) + NUF_T[iu+1][ia+1]*tu)*ta;
 }
 
+// Outlet sponge gently damps disturbances before they hit the right boundary.
 const SPONGE_W = 28;
 const sponge = new Float32Array(xdim);
 for (let x = 0; x < xdim; x++){
@@ -674,6 +707,7 @@ for (let x = 0; x < xdim; x++){
 
 let running = true;
 
+// Set one cell to equilibrium for a given velocity and density.
 function setEquil(i, vx, vy, r){
   const vx3 = 3*vx, vy3 = 3*vy, vx2 = vx*vx, vy2 = vy*vy;
   const vxvy2 = 2*vx*vy, v2 = vx2 + vy2, v215 = 1.5*v2;
@@ -693,6 +727,7 @@ function setEquil(i, vx, vy, r){
   uy[i] = vy;
 }
 
+// Reset the flow field, fading velocity near solid bodies to avoid harsh starts.
 function initFluid(){
   const FADE = 10;
   const dchamfer = new Float32Array(N).fill(FADE);
@@ -730,6 +765,7 @@ function initFluid(){
   clearForces();
 }
 
+// Inlet is driven from the left; top and bottom are simple slip-style walls.
 function setBoundaries(){
   for (let y = 1; y < ydim-1; y++) setEquil(y*xdim, u0, 0, 1);
 
@@ -750,6 +786,7 @@ function setBoundaries(){
   }
 }
 
+// Copy the second-last column to the outlet to let flow leave the domain smoothly.
 function outlet(){
   const R = xdim-1, L = xdim-2;
   for (let y = 0; y < ydim; y++){
@@ -764,6 +801,7 @@ function outlet(){
   }
 }
 
+// BGK collision step with a small eddy-viscosity stabiliser.
 function collide(){
   for (let y = 1; y < ydim-1; y++){
     const row = y*xdim;
@@ -832,6 +870,7 @@ function clearForces(){
   forceSamples = 0;
 }
 
+// Streaming step moves each population to its neighbouring lattice cell.
 function stream(){
   for (let y = ydim-2; y > 0; y--){
     for (let x = 1; x < xdim-1; x++){
@@ -863,6 +902,7 @@ function stream(){
 
   let fx = 0, fy = 0;
 
+    // Bounce-back on obstacle surface cells also gives a rough force estimate.
   for (let k = 0; k < barList.length; k += 2){
     const x = barList[k], y = barList[k+1], i = x + y*xdim;
 
@@ -894,11 +934,13 @@ function stream(){
 }
 
 /* ================= TEST BODIES ================= */
+// The body is rebuilt as solid cells whenever angle or body type changes.
 const chord = Math.round(xdim * 0.32);
 const cx = Math.round(xdim * 0.40), cy = Math.round(ydim * 0.5);
 let bodyType = 'n0012', aoa = 6;
 let customP = {m:0.02, p:0.4, t:0.12, code:'2412'};
 
+// Preset and custom NACA parameters: max camber, camber location, thickness.
 function nacaParams(t){
   if (t === 'custom') return customP;
   return {
@@ -926,6 +968,7 @@ function isSurfaceCell(x, y){
          !bar[i+1+xdim] || !bar[i-1+xdim] || !bar[i+1-xdim] || !bar[i-1-xdim];
 }
 
+// Recreate the solid-cell mask for the current body and angle of attack.
 function rebuildBody(keepFlow){
   const old = bar.slice();
   bar.fill(0);
@@ -994,6 +1037,7 @@ function rebuildBody(keepFlow){
 }
 
 /* ================= SMOKE ================= */
+// Smoke is made from massless tracer particles advected by the velocity field.
 const NP_MAX = 6000;
 let NP = 1400;
 
@@ -1003,6 +1047,7 @@ const px = new Float32Array(NP_MAX), py = new Float32Array(NP_MAX),
 
 const vv = [0,0];
 
+// Bilinear interpolation gives a smooth velocity at particle positions.
 function velAt(x, y){
   let x0 = x|0, y0 = y|0;
   if (x0 < 0) x0 = 0; else if (x0 > xdim-2) x0 = xdim-2;
@@ -1019,6 +1064,7 @@ function velAt(x, y){
   vv[1] = uy[i00]*w00 + uy[i10]*w10 + uy[i01]*w01 + uy[i11]*w11;
 }
 
+// Place a particle at the inlet or at a user-painted burst location.
 function seedParticle(k, burstX, burstY){
   if (burstX !== undefined){
     px[k] = burstX;
@@ -1042,6 +1088,7 @@ function initParticles(){
   }
 }
 
+// Move smoke particles through the flow and recycle them when they leave/strike the body.
 function advectParticles(){
   for (let k = 0; k < NP; k++){
     const x = px[k], y = py[k];
@@ -1076,6 +1123,7 @@ function advectParticles(){
 }
 
 /* ================= RENDERING ================= */
+// DPR scaling keeps the canvases sharp on high-density screens.
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const fieldCv = document.getElementById('field'), smokeCv = document.getElementById('smoke'),
       bodyCv = document.getElementById('body');
@@ -1098,6 +1146,7 @@ const img = bufCx.createImageData(xdim, ydim);
 
 let viewMode = 'vort', smokeOn = true;
 
+// Simple CFD-style blue-green-orange-red colour map.
 function jet(t){
   if (t < 0) t = 0; else if (t > 1) t = 1;
   const r = Math.min(1, Math.max(0, 1.5 - Math.abs(4*t - 3)));
@@ -1108,6 +1157,7 @@ function jet(t){
 
 const scal = new Float32Array(N), scal2 = new Float32Array(N);
 
+// Convert the chosen scalar field into pixels, then upscale it to the visible canvas.
 function paintField(){
   const d = img.data;
   const vs = 26/u0;
@@ -1193,6 +1243,7 @@ function paintField(){
   fieldCx.drawImage(buf, 0, 0, W, H);
 }
 
+// Fade old smoke trails and draw the latest particle movement as streaks.
 function paintSmoke(){
   smokeCx.globalCompositeOperation = 'destination-out';
   smokeCx.fillStyle = 'rgba(0,0,0,0.10)';
@@ -1240,6 +1291,7 @@ function bodyOutline(){
   return pts;
 }
 
+// Draw the visual body layer above the solver field.
 function drawBody(){
   bodyCx.clearRect(0, 0, W, H);
   if (bodyType === 'none') return;
@@ -1274,6 +1326,7 @@ function drawBody(){
 }
 
 /* ================= COLORBAR ================= */
+// Colourbar labels change with the active view mode.
 const cbarCv = document.getElementById('cbar');
 cbarCv.width = 104*DPR;
 cbarCv.height = 230*DPR;
@@ -1348,6 +1401,7 @@ function drawColorbar(){
 }
 
 /* ================= CHARTS ================= */
+// Polar chart stores averaged force points for each angle of attack.
 const polarCv = document.getElementById('polar');
 polarCv.width = 560*DPR;
 polarCv.height = 150*DPR;
@@ -1434,6 +1488,7 @@ function drawPolar(){
   trace('cl', 'rgba(255,180,84,0.95)', 1);
 }
 
+// Draw live markers without committing them to the stored lift curve.
 function drawPolarLive(){
   if (!isWing() || !barList.length) return;
 
@@ -1457,6 +1512,7 @@ thistCv.width = 560*DPR;
 thistCv.height = 150*DPR;
 const tcx = thistCv.getContext('2d');
 
+// Circular buffers keep the latest force history without growing forever.
 const HN = 600;
 const hCl = new Float32Array(HN), hCd = new Float32Array(HN), hT = new Float32Array(HN);
 let hHead = 0, hCount = 0, simSteps = 0;
@@ -1549,6 +1605,7 @@ function drawTime(){
 }
 
 /* ================= STATUS ================= */
+// Flow labels are qualitative helpers, based on angle and lift fluctuation.
 const regv = document.getElementById('regv');
 let smFluct = 0;
 
@@ -1583,6 +1640,7 @@ function flowRegime(){
   return ['STABLE FLOW', 'var(--green)', false];
 }
 
+// Estimate Strouhal number from lift oscillations when the cylinder is selected.
 function estimateStrouhal(){
   if (bodyType !== 'cyl' || hCount < 180 || u0 <= 0) return null;
 
@@ -1632,6 +1690,7 @@ function estimateStrouhal(){
 }
 
 /* ================= MAIN LOOP ================= */
+// Main animation loop advances the solver, updates readouts, and redraws canvases.
 const clv = document.getElementById('clv'), cdv = document.getElementById('cdv'),
       ldv = document.getElementById('ldv'), rev = document.getElementById('rev'),
       fpsv = document.getElementById('fpsv'), hint = document.getElementById('hint'),
@@ -1681,6 +1740,7 @@ function frame(now){
 
   fps = fps*0.92 + (1000/Math.max(dt,1))*0.08;
 
+    // Auto-adjust solver work per frame to balance smoothness and performance.
   if (dt > 34 && stepsPerFrame > qMin) stepsPerFrame--;
   else if (dt < 18 && stepsPerFrame < qMax) stepsPerFrame++;
 
@@ -1716,6 +1776,7 @@ function frame(now){
 
     if (forceSamples > 0 && barList.length){
       const Lforce = bodyType === 'cyl' ? 2*ydim*0.11 : chord;
+      // Non-dimensionalise forces into approximate CL and CD values.
       const q = 0.5*u0*u0*Lforce;
 
       const cl = (-Fy/forceSamples)/q;
@@ -1767,6 +1828,7 @@ function frame(now){
 }
 
 /* ================= CONTROLS ================= */
+// UI controls update the solver state immediately.
 const aoaEl = document.getElementById('aoa'), aoavEl = document.getElementById('aoav');
 const spdEl = document.getElementById('spd'), spdvEl = document.getElementById('spdv');
 const viscEl = document.getElementById('visc'), viscvEl = document.getElementById('viscv');
@@ -1817,6 +1879,7 @@ document.getElementById('uPresets').addEventListener('click', e => {
   clearPolar();
 });
 
+// Apply the user viscosity plus a safety floor for difficult flow cases.
 function recomputeVisc(){
   const A = isWing() ? Math.abs(aoa) : (bodyType === 'cyl' ? 30 : 0);
   const bodyK = (bodyType === 'cyl' || bodyType === 'plate') ? 1.2 : 1.0;
@@ -1895,6 +1958,7 @@ function syncPressed(sel){
   document.querySelectorAll(sel).forEach(c => c.setAttribute('aria-pressed', c.classList.contains('on')));
 }
 
+// Convert a 4-digit NACA code into camber, camber position, and thickness.
 function applyCustomNaca(){
   const code = nacaIn.value.trim();
 
@@ -1926,6 +1990,7 @@ document.getElementById('nacaGo').addEventListener('click', applyCustomNaca);
 nacaIn.addEventListener('input', () => { nacaIn.value = nacaIn.value.replace(/\D/g, ''); });
 nacaIn.addEventListener('keydown', e => { if (e.key === 'Enter') applyCustomNaca(); });
 
+// Body buttons switch the geometry and clear old curve/history data.
 document.getElementById('bodies').addEventListener('click', e => {
   const b = e.target.closest('.chip');
   if (!b || !b.dataset.b) return;
@@ -2011,6 +2076,7 @@ document.getElementById('btnReset').addEventListener('click', () => {
 });
 
 /* ================= EXPORT ================= */
+// Export helpers create files directly in the browser.
 function stamp(){
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
@@ -2030,6 +2096,7 @@ function downloadBlob(name, type, content){
   setTimeout(() => URL.revokeObjectURL(url), 800);
 }
 
+// CSV export writes the collected lift/drag curve data.
 function exportLiftCurveCsv(){
   const rows = [['aoa_deg','cl','cd','ld','body','u0_lattice','nu_effective','timestamp_iso']];
   const pts = [...polarData.entries()].sort((a,b) => a[0] - b[0]);
@@ -2062,6 +2129,8 @@ function exportLiftCurveCsv(){
   );
 }
 
+// Snapshot combines the visible layers into one PNG.
+// Snapshot combines the visible layers into one PNG.
 function exportSnapshot(){
   drawColorbar();
 
@@ -2122,6 +2191,7 @@ document.getElementById('btnShot').addEventListener('click', exportSnapshot);
 document.getElementById('btnCsv').addEventListener('click', exportLiftCurveCsv);
 
 /* ================= POINTER INPUT ================= */
+// Clicking or dragging injects extra smoke near the pointer.
 let puffing = false;
 const stageEl = document.getElementById('stage');
 
@@ -2153,6 +2223,7 @@ stageEl.addEventListener('pointerup', () => { puffing = false; });
 stageEl.addEventListener('pointercancel', () => { puffing = false; });
 
 /* ================= KEYBOARD ================= */
+// Keyboard shortcuts mirror the main controls for faster testing.
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('button, input')) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -2189,6 +2260,7 @@ window.addEventListener('keydown', e => {
 });
 
 /* ================= START ================= */
+// Initial UI sync, solver setup, and animation start.
 aoavEl.textContent = aoa.toFixed(1) + '°';
 spdvEl.textContent = speedLabel(u0);
 
@@ -2209,6 +2281,24 @@ drawTime();
 drawColorbar();
 
 requestAnimationFrame(frame);
+/* ===== LIVE lu → m/s CONVERTER ===== */
+(() => {
+  const vref   = document.getElementById('vref');
+  const liveLu = document.getElementById('liveLu');
+  const liveMs = document.getElementById('liveMs');
+  const U_REF  = 0.10;                    // the reference u0 that V_ref represents
+
+  function refresh(){
+    const V = parseFloat(vref.value) || 0;
+    const ms = u0 * (V / U_REF);          // v = u0 × (V_ref / u0_ref)
+    liveLu.textContent = u0.toFixed(3);
+    liveMs.textContent = ms.toFixed(1);
+  }
+
+  vref.addEventListener('input', refresh);
+  setInterval(refresh, 120);              // keeps up with slider / presets / keys
+  refresh();
+})();
 </script>
 </body>
 </html>
