@@ -2,9 +2,7 @@
 
 A real-time, interactive 2-D wind tunnel that runs entirely in your browser. No installs, no server, no build step — one HTML file containing a full lattice-Boltzmann fluid solver, live force measurement, and smoke visualisation.
 
-**Live demo:** `https://YOURUSERNAME.github.io/aero-tunnel/` *(replace with your GitHub Pages URL)*
-
-Built by **Sarujan Srikaran** ([@SarujanSrikaran](https://github.com/SarujanSrikaran))
+Built by **Sarujan Srikaran** ([@SarujanSrikaran](https://github.com/Sarujan2001))
 
 ---
 
@@ -39,28 +37,5 @@ The solver is a **D2Q9 lattice-Boltzmann method** with BGK collision, stabilised
 The full mathematical write-up — every equation as implemented, aimed at readers with a CFD background — is in [`docs/aero_tunnel_methods.pdf`](docs/aero_tunnel_methods.pdf).
 
 **Honest limits:** the flow is 2-D at model-scale Reynolds numbers in a closed test section, so absolute coefficients differ from full-scale flight. The *trends* — lift slope, stall onset, drag polar shape, Karman shedding — are the real thing.
-
-## Run it locally
-
-Just open `index.html` in any modern browser. That's it.
-
-## Host it yourself (GitHub Pages)
-
-1. Fork or upload this repository
-2. Go to **Settings → Pages**
-3. Set Source to **Deploy from a branch**, branch `main`, folder `/ (root)`
-4. Your tunnel is live at `https://YOURUSERNAME.github.io/REPONAME/` within a minute or two
-
-## Repository layout
-
-```
-index.html                      the entire application (solver + UI, self-contained)
-docs/aero_tunnel_methods.pdf    numerical methods note (LaTeX-typeset)
-docs/aero_tunnel_methods.tex    LaTeX source of the methods note
-LICENSE                         MIT
-README.md                       this file
-```
-
-## License
 
 MIT — see [LICENSE](LICENSE). Attribution appreciated.
