@@ -51,6 +51,42 @@ h1 .tick{color:var(--amber)}
   .side .card{flex:1 1 260px}
 }
 
+/* ==================== MOBILE / NARROW-SCREEN FIXES ====================
+   On phones the tunnel canvas shrinks to screen width, but the HUD text,
+   colorbar and hint were sized in fixed desktop pixels — so they ballooned
+   relative to the tiny canvas and overlapped the flow. Here we shrink every
+   overlay to phone scale and tighten the page padding so nothing collides. */
+@media (max-width:700px){
+  body{padding:12px 10px 26px}          /* less wasted edge space on phones */
+
+  /* Smaller, tighter HUD readouts pinned closer to the corners, with a subtle
+     dark backdrop so the numbers stay readable over bright flow colours. */
+  .hud.tl,.hud.tr{background:rgba(4,6,12,.45);border-radius:6px;padding:4px 6px}
+  .hud.tl{top:6px;left:7px}
+  .hud.tr{top:6px;right:7px}
+  .hud .row{margin-bottom:2px}
+  .hud .lab{font-size:7px}
+  .hud .val{font-size:10px}
+  .hud .note{display:none}              /* hide the long disclaimer note on phones */
+  #regv{font-size:9px !important}
+
+  /* Move the colorbar to the BOTTOM-RIGHT and shrink it, so it no longer
+     sits on top of the top-left Cl/Cd/L-D/FLOW readouts. !important is needed
+     because the base #cbar rule appears later in the stylesheet source. */
+  #cbar{width:48px !important;height:104px !important;left:auto !important;right:6px !important;bottom:26px !important}
+
+  /* Wrap the hint text instead of letting it run off the edge */
+  #hint{font-size:8px;bottom:5px;white-space:normal;max-width:70%;text-align:center;line-height:1.35}
+
+  /* Stack every control row vertically so labels and sliders are readable */
+  .prow{gap:8px 10px}
+  .plabel{min-width:100%}               /* label sits on its own line above its control */
+  .slider{min-width:100%}
+  .chips{gap:6px}
+  .chip{padding:6px 9px;font-size:10px}
+  .credit{font-size:10px}
+}
+
 /* ==================== STAGE (the wind tunnel viewport) ==================== */
 /* touch-action:none lets pointer-drag paint smoke on touch screens without scrolling the page */
 .stage{position:relative;width:100%;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#04060c;box-shadow:0 30px 80px -30px rgba(0,0,0,.9);touch-action:none;cursor:crosshair;transition:border-color .25s}
@@ -103,6 +139,8 @@ h1 .tick{color:var(--amber)}
 .slider input::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--amber);border:2px solid #05080f;box-shadow:0 0 8px rgba(255,180,84,.6)}
 .slider input::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--amber);border:2px solid #05080f}
 .sval{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--amber);min-width:104px;text-align:right}
+/* Live "behaves like <fluid>" tag beside the viscosity readout */
+.fluidtag{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--cyan);background:rgba(95,220,255,.08);border:1px solid var(--line);border-radius:6px;padding:5px 10px;white-space:nowrap}
 
 /* ==================== SIDEBAR CARDS ==================== */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
@@ -197,6 +235,20 @@ footer b{color:#9fb2d2;font-weight:500}
   <div class="prow">
     <span class="plabel">Viscosity</span>
     <div class="slider"><input type="range" id="visc" min="0" max="100" step="1" value="22" aria-label="Fluid viscosity" title="Kinematic viscosity ν — lower = higher Reynolds number (auto-floored for stability)"><span class="sval" id="viscv"></span></div>
+    <span class="fluidtag" id="fluidTag" title="Roughly which everyday fluid this viscosity behaves like">like: air</span>
+  </div>
+  <!-- Quick presets: click to jump the viscosity slider to a value that behaves
+       like a familiar fluid. These are analogies for intuition, not exact matches. -->
+  <div class="prow">
+    <span class="plabel">Fluid preset</span>
+    <div class="chips" id="fluids" role="group" aria-label="Preset fluid viscosities">
+      <button type="button" class="chip" data-v="3"  title="Very low viscosity — thin, turbulent, high Reynolds number">AIR</button>
+      <button type="button" class="chip" data-v="22" title="Low viscosity — the default working fluid">WATER</button>
+      <button type="button" class="chip" data-v="52" title="Medium viscosity — noticeably thicker, smoother flow">OLIVE OIL</button>
+      <button type="button" class="chip" data-v="78" title="High viscosity — slow, syrupy, strongly damped">HONEY</button>
+      <button type="button" class="chip" data-v="100" title="Maximum viscosity — creeping, almost no vortices">GLYCERIN</button>
+    </div>
+  </div>
     <span class="plabel">Render</span>
     <div class="chips">
       <button type="button" class="chip on" id="vwVort" aria-pressed="true" title="Local rotation of the flow — shortcut: V cycles views">VORTICITY</button>
@@ -267,14 +319,14 @@ footer b{color:#9fb2d2;font-weight:500}
   </div>
   <div class="card">
     <h2>About</h2>
-    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle">@SarujanSrikaran</span>. Forces are measured from the simulation itself — sweep the angle slider to trace the lift curve live.</p>
+    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle">@SarujanSrikaran</span>. Forces are measured from the simulation itself. Top and bottom walls use bounce-back so vortices reflect off the tunnel walls rather than disappearing — sweep the angle slider to trace the lift curve live.</p>
   </div>
 </aside>
 </div><!-- /.layout -->
 
 <footer>
   <b>The physics:</b> D2Q9 Lattice-Boltzmann with BGK collision plus <b>Smagorinsky-style eddy-viscosity stabilisation</b> (local eddy viscosity from the non-equilibrium stress tensor) — a turbulence-modelling idea borrowed from LES that keeps higher Reynolds numbers stable on a browser-scale grid; this is not a validation-grade LES setup.
-  Boundaries: velocity inlet on the left, far-field top/bottom, and a <b>simple open outlet approximation</b> on the right (zero-gradient copy behind a viscous sponge layer that absorbs pressure waves before they can reflect).
+  Boundaries: velocity inlet on the left, <b>full bounce-back solid walls</b> on top and bottom (vortices reflect rather than being absorbed), and a <b>simple open outlet approximation</b> on the right (zero-gradient copy behind a viscous sponge layer that absorbs pressure waves before they can reflect).
   Aerodynamic forces come from <b>momentum exchange on surface cells only, counting fluid-side links only</b> — C<sub>L</sub>/C<sub>D</sub> are measured, not looked up. Smoke tracers are advected with 2nd-order Runge–Kutta so they hug streamlines instead of drifting through curvature.
   Limits of honesty: 2-D flow, low Mach, model-scale Reynolds numbers — absolute coefficients differ from full-scale flight; the trends (lift vs α, stall, shedding) are the real thing.
   Wind speed is capped at u₀ = 0.150 lattice units (Ma ≈ 0.26): the lattice-Boltzmann method is only valid well below its lattice sound speed c<sub>s</sub> = 1/√3, so arbitrarily high speeds are not physically or numerically possible in this scheme.
@@ -374,9 +426,36 @@ function initFluid(){
   clearForces();
 }
 function setBoundaries(){
-  // velocity inlet (left) + far-field walls (top/bottom); outlet handled after streaming
-  for (let x = 0; x < xdim; x++){ setEquil(x, u0, 0, 1); setEquil(x + (ydim-1)*xdim, u0, 0, 1); }
+  // Left column: velocity inlet — fix populations to freestream equilibrium every step.
+  // This drives a constant uniform inflow at speed u0 from the left edge.
   for (let y = 1; y < ydim-1; y++) setEquil(y*xdim, u0, 0, 1);
+
+  // Corner cells: set to freestream so the inlet and wall meet cleanly.
+  setEquil(0,              u0, 0, 1);
+  setEquil((ydim-1)*xdim,  u0, 0, 1);
+
+  // Top wall (y = 0) and bottom wall (y = ydim-1): full bounce-back.
+  // Instead of overwriting with freestream (which deleted arriving vortices),
+  // each population heading AWAY from the fluid through the wall is reflected
+  // straight back into the domain — the same physics used on the solid body.
+  // Vortices that reach the wall now bounce elastically rather than disappearing.
+  for (let x = 1; x < xdim-1; x++){
+    const iT = x;                  // top row index    (y = 0)
+    const iB = x + (ydim-1)*xdim; // bottom row index (y = ydim-1)
+
+    // Top wall bounce-back:
+    // any northward-going population at y=1 that streamed into y=0 is sent back south.
+    nS[iT]  = nN_[iT];   // north  -> south
+    nSE[iT] = nNW[iT];   // north-west -> south-east
+    nSW[iT] = nNE[iT];   // north-east -> south-west
+    // keep east/west/south populations as-is (they live inside the domain)
+
+    // Bottom wall bounce-back:
+    // any southward-going population at y=ydim-2 that streamed into y=ydim-1 is sent back north.
+    nN_[iB] = nS[iB];    // south  -> north
+    nNW[iB] = nSE[iB];   // south-east -> north-west
+    nNE[iB] = nSW[iB];   // south-west -> north-east
+  }
 }
 function outlet(){
   // zero-gradient (convective) copy: simple open outlet approximation
@@ -588,10 +667,34 @@ function advectParticles(){
   for (let k = 0; k < NP; k++){
     const x = px[k], y = py[k];
     const xi = x|0, yi = y|0;
-    if (xi < 1 || xi >= xdim-1 || yi < 1 || yi >= ydim-1 || bar[xi + yi*xdim]){ seedParticle(k); continue; }
-    velAt(x, y);                                  // k1
-    velAt(x + 0.5*vv[0], y + 0.5*vv[1]);          // k2 at midpoint
-    px[k] += vv[0]; py[k] += vv[1];
+
+    // Reseed only if the tracer left through the right edge, the left edge,
+    // or hit the solid body.  Top/bottom wall hits are handled below.
+    if (xi < 1 || xi >= xdim-1 || bar[xi + yi*xdim]){ seedParticle(k); continue; }
+
+    // RK2 midpoint advection — same as before.
+    velAt(x, y);
+    velAt(x + 0.5*vv[0], y + 0.5*vv[1]);
+    let nx = px[k] + vv[0];
+    let ny = py[k] + vv[1];
+
+    // Top wall elastic reflection: if the tracer would cross y = 1 (the first
+    // fluid row above the bounce-back wall), mirror it back into the domain.
+    // This keeps the tracer alive and visible as it bounces, just like the fluid.
+    if (ny < 1){
+      ny = 2 - ny;        // reflect about y = 1
+      py[k] = ny;         // snap current pos into domain too so ox/oy are valid
+      oy[k] = ny;
+    }
+    // Bottom wall elastic reflection: mirror about y = ydim-2.
+    if (ny > ydim-2){
+      ny = 2*(ydim-2) - ny;
+      py[k] = ny;
+      oy[k] = ny;
+    }
+
+    px[k] = nx;
+    py[k] = ny;
   }
 }
 
@@ -1094,6 +1197,24 @@ function recomputeVisc(){
   nu = Math.max(nuSlider, floor);
   tauBase = 3*nu + 0.5;
   viscvEl.textContent = 'ν ' + nu.toFixed(3) + (nu > nuSlider + 1e-6 ? '*' : '') + ' τ ' + tauBase.toFixed(2);
+  updateFluidTag();
+}
+
+// Map the current slider position (0..100) to a familiar fluid it behaves like.
+// The simulation's viscosity is in lattice units and cannot equal one real fluid
+// exactly, but the ORDERING is physical: thin fluids (air, water) sit low, thick
+// ones (honey, glycerin) sit high. This tag turns the abstract slider into intuition.
+const fluidTag = document.getElementById('fluidTag');
+function updateFluidTag(){
+  const s = parseInt(viscEl.value);   // 0..100 slider position
+  let name;
+  if (s < 10)      name = 'air';
+  else if (s < 35) name = 'water';
+  else if (s < 62) name = 'olive oil';
+  else if (s < 88) name = 'honey';
+  else             name = 'glycerin';
+  // If the stability floor forced ν higher than requested, say so honestly.
+  fluidTag.textContent = (nu > nuSlider + 1e-6) ? 'like: ' + name + ' (floored)' : 'like: ' + name;
 }
 // Viscosity slider: 0..100 maps linearly onto the usable range of nu
 function setVisc(){
@@ -1101,7 +1222,25 @@ function setVisc(){
   nuSlider = 0.004 + t*0.046;           // ν ∈ [0.004, 0.050]
   recomputeVisc();
 }
-viscEl.addEventListener('input', () => { setVisc(); clearPolar(); });
+// Manual slider drag: deselect any active preset chip, since we are off-preset now.
+viscEl.addEventListener('input', () => {
+  setVisc(); clearPolar();
+  document.querySelectorAll('#fluids .chip').forEach(c => { c.classList.remove('on'); c.setAttribute('aria-pressed', false); });
+});
+
+// Fluid preset chips: clicking one moves the viscosity slider to a value that
+// behaves like that everyday fluid, then re-runs the normal viscosity update.
+document.getElementById('fluids').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b || !b.dataset.v) return;
+  viscEl.value = b.dataset.v;                 // jump the slider
+  // highlight the chosen preset, clear the others
+  document.querySelectorAll('#fluids .chip').forEach(c => {
+    const on = c === b;
+    c.classList.toggle('on', on);
+    c.setAttribute('aria-pressed', on);
+  });
+  setVisc(); clearPolar();                     // apply exactly as a manual slider drag would
+});
 
 // Smoke-density slider: raises or lowers the number of active tracer particles live
 const smkEl = document.getElementById('smk'), smkvEl = document.getElementById('smkv');
@@ -1298,6 +1437,11 @@ window.addEventListener('keydown', e => {
 aoavEl.textContent = aoa.toFixed(1) + '°';
 spdvEl.textContent = u0.toFixed(3);
 setVisc();
+// Highlight the fluid preset that matches the default slider value (water at 22).
+document.querySelectorAll('#fluids .chip').forEach(c => {
+  const on = parseInt(c.dataset.v) === parseInt(viscEl.value);
+  c.classList.toggle('on', on); c.setAttribute('aria-pressed', on);
+});
 rebuildBody(false);
 initFluid();
 initParticles();
