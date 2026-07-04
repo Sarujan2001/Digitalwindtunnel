@@ -51,40 +51,51 @@ h1 .tick{color:var(--amber)}
   .side .card{flex:1 1 260px}
 }
 
-/* ==================== MOBILE / NARROW-SCREEN FIXES ====================
-   On phones the tunnel canvas shrinks to screen width, but the HUD text,
-   colorbar and hint were sized in fixed desktop pixels — so they ballooned
-   relative to the tiny canvas and overlapped the flow. Here we shrink every
-   overlay to phone scale and tighten the page padding so nothing collides. */
+/* ==================== MOBILE / NARROW-SCREEN FIXES ==================== */
 @media (max-width:700px){
-  body{padding:12px 10px 26px}          /* less wasted edge space on phones */
+  body{padding:12px 10px 26px}
+  
+  /* Make the stage a container so overlays scale perfectly with the canvas */
+  .stage { container-type: inline-size; }
 
-  /* Smaller, tighter HUD readouts pinned closer to the corners, with a subtle
-     dark backdrop so the numbers stay readable over bright flow colours. */
-  .hud.tl,.hud.tr{background:rgba(4,6,12,.45);border-radius:6px;padding:4px 6px}
-  .hud.tl{top:6px;left:7px}
-  .hud.tr{top:6px;right:7px}
-  .hud .row{margin-bottom:2px}
-  .hud .lab{font-size:7px}
-  .hud .val{font-size:10px}
-  .hud .note{display:none}              /* hide the long disclaimer note on phones */
-  #regv{font-size:9px !important}
+  /* Scale fonts & spacing dynamically (1cqi = 1% of the stage width) */
+  .hud.tl, .hud.tr { background: transparent; padding: 0; }
+  .hud.tl { top: 1.5cqi; left: 1.5cqi; }
+  .hud.tr { top: 1.5cqi; right: 1.5cqi; }
+  .hud .row { margin-bottom: 0.5cqi; }
+  .hud .lab { font-size: 1cqi; }
+  .hud .val { font-size: 1.5cqi !important; }
+  #regv { font-size: 1.2cqi !important; }
+  #bodyv { font-size: 1.1cqi !important; }
+  .hud .note { display: none; }
 
-  /* Move the colorbar to the BOTTOM-RIGHT and shrink it, so it no longer
-     sits on top of the top-left Cl/Cd/L-D/FLOW readouts. !important is needed
-     because the base #cbar rule appears later in the stylesheet source. */
-  #cbar{width:48px !important;height:104px !important;left:auto !important;right:6px !important;bottom:26px !important}
+  /* Keep colorbar on the left, but shrink it proportionally */
+  #cbar {
+    width: 10cqi !important;
+    height: 22cqi !important;
+    left: 1.5cqi !important;
+    bottom: 2cqi !important;
+    right: auto !important;
+  }
 
-  /* Wrap the hint text instead of letting it run off the edge */
-  #hint{font-size:8px;bottom:5px;white-space:normal;max-width:70%;text-align:center;line-height:1.35}
+  /* Scale the hint text */
+  #hint {
+    font-size: 1cqi;
+    bottom: 0.5cqi;
+    white-space: nowrap;
+    max-width: 100%;
+  }
 
-  /* Stack every control row vertically so labels and sliders are readable */
+  /* Stack control rows vertically */
   .prow{gap:8px 10px}
-  .plabel{min-width:100%}               /* label sits on its own line above its control */
+  .plabel{min-width:100%}
   .slider{min-width:100%}
   .chips{gap:6px}
   .chip{padding:6px 9px;font-size:10px}
   .credit{font-size:10px}
+  
+  /* Prevent iOS Auto-Zoom */
+  #nacaIn { font-size: 16px; }
 }
 
 /* ==================== STAGE (the wind tunnel viewport) ==================== */
@@ -249,6 +260,7 @@ footer b{color:#9fb2d2;font-weight:500}
       <button type="button" class="chip" data-v="100" title="Maximum viscosity — creeping, almost no vortices">GLYCERIN</button>
     </div>
   </div>
+  <div class="prow">
     <span class="plabel">Render</span>
     <div class="chips">
       <button type="button" class="chip on" id="vwVort" aria-pressed="true" title="Local rotation of the flow — shortcut: V cycles views">VORTICITY</button>
