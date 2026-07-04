@@ -1356,9 +1356,11 @@ function drawColorbar(){
   if (viewMode === 'vort'){
     title = 'VORTICITY';
     unit = 'ω·c/u0';
-    lo = '−' + (chord/26).toFixed(1);
+    // curl computed in paintField is a 2-cell central difference = 2·ω,
+    // so the true vorticity extreme in ω·c/u0 units is chord/52, not chord/26.
+    lo = '−' + (chord/52).toFixed(1);
     mid = '0';
-    hi = '+' + (chord/26).toFixed(1);
+    hi = '+' + (chord/52).toFixed(1);
   } else if (viewMode === 'press'){
     title = 'PRESSURE';
     unit = 'Cp';
