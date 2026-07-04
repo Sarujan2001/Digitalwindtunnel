@@ -471,12 +471,12 @@ footer b{color:#9fb2d2;font-weight:500}
         value="100" 
         aria-label="Wind speed in metres per second"
         title="Display is m/s. Solver still uses lattice units.">
-      <span class="sval" id="spdv">343.0 m/s</span>
+      <span class="sval" id="spdv">100.0 m/s</span>
     </div>
 
     <div class="chips" id="machPresets" role="group" aria-label="Mach presets">
-      <button type="button" class="chip" data-u="0.100" aria-pressed="false" title="Set displayed speed to Mach 1">MACH 1</button>
-      <button type="button" class="chip" data-u="0.200" aria-pressed="false" title="Set displayed speed to Mach 2">MACH 2</button>
+      <button type="button" class="chip" data-u="0.100" data-ms="343" aria-pressed="false" title="Special preset: Mach 1, outside the normal slider range">MACH 1</button>
+      <button type="button" class="chip" data-u="0.200" data-ms="686" aria-pressed="false" title="Special preset: Mach 2, outside the normal slider range">MACH 2</button>
     </div>
   </div>
 
@@ -587,8 +587,8 @@ footer b{color:#9fb2d2;font-weight:500}
 
 <footer>
   <b>The physics:</b> D2Q9 Lattice-Boltzmann with BGK collision plus <b>Smagorinsky-style eddy-viscosity stabilisation</b>. 
-  Solver speed is still <b>lattice units</b>. Display speed uses: 0.100 lattice speed = 343.0 m/s = Mach 1 display. 
-  The Mach buttons are presets only; this is still a low-Mach educational LBM solver internally.
+  Solver speed is still <b>lattice units</b>. The normal slider is capped at <b>200 m/s</b>. 
+  The Mach 1 and Mach 2 buttons are separate presets; this is still a low-Mach educational LBM solver internally.
   <br><b>Built by Sarujan Srikaran · @SarujanSrikaran</b>
 </footer>
 
@@ -611,19 +611,24 @@ let barList = [];
 
 /*
   Solver uses lattice units.
-  UI shows m/s only.
-  Mach buttons are separate presets.
+  Slider shows 20–200 m/s only.
+  Mach buttons are separate special presets.
 */
-let u0 = 0.10;
 const SOUND_SPEED_MS = 343.0;
-const U_LU_TO_MS = SOUND_SPEED_MS / 0.100;
+const MACH1_U_LATTICE = 0.100;
+const U_LU_TO_MS = SOUND_SPEED_MS / MACH1_U_LATTICE;
 
 function speedMS(u_lattice){
   return u_lattice * U_LU_TO_MS;
 }
+function speedToLattice(speed_ms){
+  return speed_ms / U_LU_TO_MS;
+}
 function speedLabel(u_lattice){
   return speedMS(u_lattice).toFixed(1) + ' m/s';
 }
+
+let u0 = speedToLattice(100);
 
 let nu = 0.014;
 let nuSlider = 0.014;
@@ -1779,7 +1784,8 @@ aoaEl.addEventListener('input', () => {
 });
 
 spdEl.addEventListener('input', () => {
-  u0 = parseInt(spdEl.value) / 1000;
+  const speed_ms = parseInt(spdEl.value);
+  u0 = speedToLattice(speed_ms);
   spdvEl.textContent = speedLabel(u0);
 
   clearMachButtons();
@@ -1788,13 +1794,13 @@ spdEl.addEventListener('input', () => {
   clearPolar();
 });
 
-// Mach preset buttons: solver still receives lattice speed.
+// Mach buttons are special presets outside the 200 m/s slider limit.
 document.getElementById('machPresets').addEventListener('click', e => {
   const b = e.target.closest('.chip');
   if (!b || !b.dataset.u) return;
 
   u0 = parseFloat(b.dataset.u);
-  spdEl.value = Math.round(u0 * 1000);
+  spdEl.value = spdEl.max;
   spdvEl.textContent = speedLabel(u0);
 
   document.querySelectorAll('#machPresets .chip').forEach(c => {
@@ -2191,9 +2197,6 @@ document.querySelectorAll('#fluids .chip').forEach(c => {
   c.classList.toggle('on', on);
   c.setAttribute('aria-pressed', on);
 });
-
-document.querySelector('#machPresets .chip[data-u="0.100"]').classList.add('on');
-document.querySelector('#machPresets .chip[data-u="0.100"]').setAttribute('aria-pressed', true);
 
 rebuildBody(false);
 initFluid();
