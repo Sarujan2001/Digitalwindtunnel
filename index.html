@@ -460,23 +460,24 @@ footer b{color:#9fb2d2;font-weight:500}
       <span class="sval" id="aoav">6.0°</span>
     </div>
 
-    <span class="plabel">Wind speed</span>
+    <span class="plabel">Inlet&nbsp;u₀</span>
     <div class="slider">
       <input 
         type="range" 
         id="spd" 
-        min="20" 
-        max="200" 
-        step="1" 
-        value="100" 
-        aria-label="Wind speed in metres per second"
-        title="Display is m/s. Solver still uses lattice units.">
-      <span class="sval" id="spdv">100.0 m/s</span>
+        min="0.02" 
+        max="0.20" 
+        step="0.005" 
+        value="0.10" 
+        aria-label="Inlet velocity in lattice units"
+        title="Inlet velocity in lattice units (cells per step). Stable LBM band ≈ 0.02–0.20.">
+      <span class="sval" id="spdv">0.100 lu</span>
     </div>
 
-    <div class="chips" id="machPresets" role="group" aria-label="Mach presets">
-      <button type="button" class="chip" data-u="0.100" data-ms="343" aria-pressed="false" title="Special preset: Mach 1, outside the normal slider range">MACH 1</button>
-      <button type="button" class="chip" data-u="0.200" data-ms="686" aria-pressed="false" title="Special preset: Mach 2, outside the normal slider range">MACH 2</button>
+    <div class="chips" id="uPresets" role="group" aria-label="Inlet velocity presets">
+      <button type="button" class="chip" data-u="0.05" aria-pressed="false" title="Gentle, low-Re flow">u 0.05</button>
+      <button type="button" class="chip" data-u="0.10" aria-pressed="false" title="Reference flow">u 0.10</button>
+      <button type="button" class="chip" data-u="0.20" aria-pressed="false" title="Top of the stable band">u 0.20</button>
     </div>
   </div>
 
@@ -579,16 +580,26 @@ footer b{color:#9fb2d2;font-weight:500}
   </div>
 
   <div class="card">
+    <h2>Reading the units</h2>
+    <p>Everything here runs in <span class="name">lattice units (lu)</span>. A grid cell is the length unit (Δx = 1) and one solver step is the time unit (Δt = 1), so <span class="handle">u₀</span> is simply <b style="color:#9fb2d2">cells per step</b> — the inlet velocity.</p>
+    <p style="margin-top:9px">Keep u₀ around <span class="handle">0.02 – 0.20</span>. Lower looks sluggish; above ≈ 0.20 the compressibility error grows and the flow can blow up. What really sets the flow character is the dimensionless <span class="handle">Reynolds number</span> Re = u₀·L / ν, shown live in the HUD — not any m/s figure.</p>
+    <p style="margin-top:9px"><b style="color:#9fb2d2">→ Converting to m/s.</b> Pick one real speed you want a reference u₀ to mean. Then:</p>
+    <p style="margin-top:5px;color:var(--cyan);font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.7">v[m/s] = u₀ × (V_ref / u₀_ref)</p>
+    <p style="margin-top:5px"><b style="color:#9fb2d2">Example:</b> decide that u₀ = 0.10 lu represents 30 m/s. Then u₀ = 0.05 → 15 m/s and u₀ = 0.20 → 60 m/s. Pick any V_ref you like — the physics is identical, only the label changes.</p>
+    <p style="margin-top:9px;color:rgba(140,160,190,.6)">More rigorously: if a cell is Δx metres and a step is Δt seconds, then v = u₀·(Δx/Δt). Match Δx to your body size and Δt to hit the Reynolds number you care about.</p>
+  </div>
+
+  <div class="card">
     <h2>About</h2>
-    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle">@SarujanSrikaran</span>. The solver runs in lattice units internally. The wind-speed display is converted to m/s for the user.</p>
+    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle">@SarujanSrikaran</span>. The solver runs entirely in lattice units, and so does the display — see "Reading the units" for how to map u₀ to m/s if you want a physical speed.</p>
   </div>
 </aside>
 </div>
 
 <footer>
   <b>The physics:</b> D2Q9 Lattice-Boltzmann with BGK collision plus <b>Smagorinsky-style eddy-viscosity stabilisation</b>. 
-  Solver speed is still <b>lattice units</b>. The normal slider is capped at <b>200 m/s</b>. 
-  The Mach 1 and Mach 2 buttons are separate presets; this is still a low-Mach educational LBM solver internally.
+  All velocities are shown in <b>lattice units (lu)</b> — the inlet u₀ is cells per step. 
+  The stable band is roughly <b>0.02–0.20 lu</b>; see the "Reading the units" card for the lu → m/s conversion. This is a low-Mach educational LBM solver.
   <br><b>Built by Sarujan Srikaran · @SarujanSrikaran</b>
 </footer>
 
@@ -610,25 +621,18 @@ const bar = new Uint8Array(N);
 let barList = [];
 
 /*
-  Solver uses lattice units.
-  Slider shows 20–200 m/s only.
-  Mach buttons are separate special presets.
+  Everything is now in LATTICE UNITS (lu).
+  u0 is the inlet velocity in lattice units (cells per step).
+  There is no m/s conversion baked into the solver anymore — the
+  "Reading the units" side card explains how to map lu -> m/s yourself.
+  Keep u0 roughly in 0.02 .. 0.20; above ~0.2 the LBM compressibility
+  error grows and the flow can go unstable.
 */
-const SOUND_SPEED_MS = 343.0;
-const MACH1_U_LATTICE = 0.100;
-const U_LU_TO_MS = SOUND_SPEED_MS / MACH1_U_LATTICE;
-
-function speedMS(u_lattice){
-  return u_lattice * U_LU_TO_MS;
-}
-function speedToLattice(speed_ms){
-  return speed_ms / U_LU_TO_MS;
-}
 function speedLabel(u_lattice){
-  return speedMS(u_lattice).toFixed(1) + ' m/s';
+  return u_lattice.toFixed(3) + ' lu';
 }
 
-let u0 = speedToLattice(100);
+let u0 = 0.10;   // lively default, comfortably inside the stable LBM band
 
 let nu = 0.014;
 let nuSlider = 0.014;
@@ -1767,8 +1771,8 @@ const aoaEl = document.getElementById('aoa'), aoavEl = document.getElementById('
 const spdEl = document.getElementById('spd'), spdvEl = document.getElementById('spdv');
 const viscEl = document.getElementById('visc'), viscvEl = document.getElementById('viscv');
 
-function clearMachButtons(){
-  document.querySelectorAll('#machPresets .chip').forEach(c => {
+function clearUPresets(){
+  document.querySelectorAll('#uPresets .chip').forEach(c => {
     c.classList.remove('on');
     c.setAttribute('aria-pressed', false);
   });
@@ -1784,26 +1788,25 @@ aoaEl.addEventListener('input', () => {
 });
 
 spdEl.addEventListener('input', () => {
-  const speed_ms = parseInt(spdEl.value);
-  u0 = speedToLattice(speed_ms);
+  u0 = parseFloat(spdEl.value);
   spdvEl.textContent = speedLabel(u0);
 
-  clearMachButtons();
+  clearUPresets();
   recomputeVisc();
   drawColorbar();
   clearPolar();
 });
 
-// Mach buttons are special presets outside the 200 m/s slider limit.
-document.getElementById('machPresets').addEventListener('click', e => {
+// Presets are just handy points on the same lattice-unit scale as the slider.
+document.getElementById('uPresets').addEventListener('click', e => {
   const b = e.target.closest('.chip');
   if (!b || !b.dataset.u) return;
 
   u0 = parseFloat(b.dataset.u);
-  spdEl.value = spdEl.max;
+  spdEl.value = u0;
   spdvEl.textContent = speedLabel(u0);
 
-  document.querySelectorAll('#machPresets .chip').forEach(c => {
+  document.querySelectorAll('#uPresets .chip').forEach(c => {
     const on = c === b;
     c.classList.toggle('on', on);
     c.setAttribute('aria-pressed', on);
@@ -2028,7 +2031,7 @@ function downloadBlob(name, type, content){
 }
 
 function exportLiftCurveCsv(){
-  const rows = [['aoa_deg','cl','cd','ld','body','u0_lattice','speed_ms_display','nu_effective','timestamp_iso']];
+  const rows = [['aoa_deg','cl','cd','ld','body','u0_lattice','nu_effective','timestamp_iso']];
   const pts = [...polarData.entries()].sort((a,b) => a[0] - b[0]);
 
   if (!pts.length && barList.length) pts.push([aoa, {cl:smCl, cd:smCd}]);
@@ -2045,7 +2048,6 @@ function exportLiftCurveCsv(){
       ld === '' ? '' : ld.toFixed(6),
       bodyName(),
       u0.toFixed(4),
-      speedMS(u0).toFixed(3),
       nu.toFixed(6),
       ts
     ]);
@@ -2092,7 +2094,7 @@ function exportSnapshot(){
 
   ox.fillStyle = 'rgba(255,180,84,.95)';
   ox.fillText(`CL ${clv.textContent}   CD ${cdv.textContent}   L/D ${ldv.textContent}`, 14*DPR, 12*DPR);
-  ox.fillText(`${bodyv.textContent}   Re ${rev.textContent}   Speed ${speedLabel(u0)}`, 14*DPR, 30*DPR);
+  ox.fillText(`${bodyv.textContent}   Re ${rev.textContent}   u0 ${u0.toFixed(3)} lu`, 14*DPR, 30*DPR);
 
   ox.font = `${10*DPR}px IBM Plex Mono, monospace`;
   ox.textAlign = 'center';
