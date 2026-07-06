@@ -217,6 +217,10 @@ h1 .tick{color:var(--amber)}
   flex-wrap:wrap;
   gap:10px 18px;
   align-items:center;
+  transition: all 0.3s ease;
+}
+.prow.hidden{
+  display:none;
 }
 .plabel{
   font-family:'IBM Plex Mono',monospace;
@@ -314,6 +318,19 @@ h1 .tick{color:var(--amber)}
   border-radius:6px;
   padding:5px 10px;
   white-space:nowrap;
+}
+.live-tag{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:11px;
+  letter-spacing:.06em;
+  color:var(--cyan);
+  background:#131826;
+  border:1px solid #1c2438;
+  border-radius:6px;
+  padding:7px 12px;
+  white-space:nowrap;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Side cards explain controls, flow status, and unit reading. */
@@ -418,10 +435,9 @@ footer b{color:#9fb2d2;font-weight:500}
 <!-- Top title and short description for the app. -->
 <header>
   <h1>AERO<span class="tick">·</span>TUNNEL</h1>
-  <div class="sub">lattice-boltzmann smoke tunnel — d2q9 / bgk + eddy-viscosity stabilisation</div>
-  <div class="credit">built by <b>Sarujan Srikaran</b></div>
+  <div class="sub">lattice-boltzmann smoke tunnel — multi-element + dynamic pitch & eddy-viscosity</div>
+  <div class="credit">built by <b><a href="https://www.linkedin.com/in/sarujansrikaran" target="_blank" rel="noopener noreferrer">Sarujan Srikaran</a></b></div>
 </header>
-
 <div class="layout">
 <div class="main">
 
@@ -470,9 +486,20 @@ footer b{color:#9fb2d2;font-weight:500}
     </div>
   </div>
 
+  <!-- Multi-element configuration selector -->
+  <div class="prow" id="rowConfig">
+    <span class="plabel">Config</span>
+    <div class="chips" id="configs" role="group">
+      <button type="button" class="chip on" data-c="single" aria-pressed="true">SINGLE ELEMENT</button>
+      <button type="button" class="chip" data-c="slatonly" aria-pressed="false">ONLY SLATS</button>
+      <button type="button" class="chip" data-c="flap" aria-pressed="false">TE FLAP</button>
+      <button type="button" class="chip" data-c="highlift" aria-pressed="false">SLAT + FLAP</button>
+    </div>
+  </div>
+
   <!-- Angle of attack and inlet speed directly affect the flow and force estimates. -->
   <div class="prow">
-    <span class="plabel">Angle&nbsp;α</span>
+    <span class="plabel">Target α</span>
     <div class="slider">
       <input type="range" id="aoa" min="-45" max="45" step="0.1" value="6" aria-label="Angle of attack in degrees">
       <span class="sval" id="aoav">6.0°</span>
@@ -484,7 +511,7 @@ footer b{color:#9fb2d2;font-weight:500}
         type="range" 
         id="spd" 
         min="0.02" 
-        max="0.20" 
+        max="0.33" 
         step="0.005" 
         value="0.10" 
         aria-label="Inlet velocity in lattice units"
@@ -496,6 +523,37 @@ footer b{color:#9fb2d2;font-weight:500}
       <button type="button" class="chip" data-u="0.05" aria-pressed="false" title="Gentle, low-Re flow">u 0.05</button>
       <button type="button" class="chip" data-u="0.10" aria-pressed="false" title="Reference flow">u 0.10</button>
       <button type="button" class="chip" data-u="0.20" aria-pressed="false" title="Top of the stable band">u 0.20</button>
+    </div>
+  </div>
+
+  <!-- Dedicated Pitch Transition Row -->
+  <div class="prow" id="rowPitch">
+    <span class="plabel">AOA TRANSITION</span>
+    <div class="slider" style="flex: 1;">
+      <input type="range" id="pitchTime" min="0.1" max="5.0" step="0.1" value="0.6" aria-label="AOA transition time in seconds">
+      <span class="sval" id="pitchTimeV" style="min-width: 45px; text-align:right;">0.6 s</span>
+    </div>
+    <div class="chips" style="flex-wrap: nowrap;">
+      <button type="button" class="chip" id="btnPitchMinus">PITCH -8°</button>
+      <button type="button" class="chip" id="btnPitchPlus">PITCH +8°</button>
+      <button type="button" class="chip" id="btnPitchSnap">SNAP</button>
+      <span class="live-tag" id="liveAoaTag">α live 6.0°</span>
+    </div>
+  </div>
+
+  <div class="prow hidden" id="rowFlap">
+    <span class="plabel">Flap Deflect</span>
+    <div class="slider">
+      <input type="range" id="flapAoa" min="0" max="30" step="0.1" value="20" aria-label="Flap deflection angle">
+      <span class="sval" id="flapAoav">20.0°</span>
+    </div>
+  </div>
+
+  <div class="prow hidden" id="rowSlat">
+    <span class="plabel">Slat Deflect</span>
+    <div class="slider">
+      <input type="range" id="slatAoa" min="-40" max="-20" step="0.1" value="-20" aria-label="Slat deflection angle">
+      <span class="sval" id="slatAoav">-20.0°</span>
     </div>
   </div>
 
@@ -548,7 +606,7 @@ footer b{color:#9fb2d2;font-weight:500}
       <button type="button" class="chip" data-q="high" aria-pressed="false">HIGH</button>
     </div>
 
-    <span class="plabel" style="margin-left:10px">Export</span>
+    <span class="plabel" style="margin-right:10px">Export</span>
     <div class="chips">
       <button type="button" class="chip" id="btnShot">SNAPSHOT PNG</button>
       <button type="button" class="chip" id="btnCsv">LIFT CURVE CSV</button>
@@ -669,6 +727,9 @@ let nu = 0.014;
 let nuSlider = 0.014;
 let tauBase = 3*nu + 0.5;
 const Cs2 = 0.03;
+const U_CAP = 0.28;
+const WALL_U_CAP = 0.08;
+const RHO_MIN = 0.35, RHO_MAX = 3.0;
 
 // Viscosity floor table used to stop high-angle/high-speed cases from exploding.
 const NUF_U = [0.08, 0.10, 0.12, 0.15];
@@ -709,6 +770,19 @@ let running = true;
 
 // Set one cell to equilibrium for a given velocity and density.
 function setEquil(i, vx, vy, r){
+  if (!isFinite(vx) || !isFinite(vy)){
+    vx = 0;
+    vy = 0;
+  }
+  if (!isFinite(r) || r < RHO_MIN || r > RHO_MAX) r = 1;
+
+  const u2 = vx*vx + vy*vy;
+  if (u2 > U_CAP*U_CAP){
+    const s = U_CAP / Math.sqrt(u2);
+    vx *= s;
+    vy *= s;
+  }
+
   const vx3 = 3*vx, vy3 = 3*vy, vx2 = vx*vx, vy2 = vy*vy;
   const vxvy2 = 2*vx*vy, v2 = vx2 + vy2, v215 = 1.5*v2;
 
@@ -811,13 +885,25 @@ function collide(){
 
       const r = n0[i]+nN_[i]+nS[i]+nE[i]+nW[i]+nNW[i]+nNE[i]+nSW[i]+nSE[i];
 
-      if (!isFinite(r) || r <= 0.2 || r > 5){
+      if (!isFinite(r) || r < RHO_MIN || r > RHO_MAX){
         setEquil(i, u0, 0, 1);
         continue;
       }
 
-      const vx = (nE[i]+nNE[i]+nSE[i]-nW[i]-nNW[i]-nSW[i]) / r;
-      const vy = (nN_[i]+nNE[i]+nNW[i]-nS[i]-nSE[i]-nSW[i]) / r;
+      let vx = (nE[i]+nNE[i]+nSE[i]-nW[i]-nNW[i]-nSW[i]) / r;
+      let vy = (nN_[i]+nNE[i]+nNW[i]-nS[i]-nSE[i]-nSW[i]) / r;
+
+      if (!isFinite(vx) || !isFinite(vy)){
+        setEquil(i, u0, 0, 1);
+        continue;
+      }
+
+      const u2 = vx*vx + vy*vy;
+      if (u2 > U_CAP*U_CAP){
+        const s = U_CAP / Math.sqrt(u2);
+        vx *= s;
+        vy *= s;
+      }
 
       rho[i]=r;
       ux[i]=vx;
@@ -870,6 +956,9 @@ function clearForces(){
   forceSamples = 0;
 }
 
+// Global applied angular velocity injected into bounce back
+let currentOmega = 0;
+
 // Streaming step moves each population to its neighbouring lattice cell.
 function stream(){
   for (let y = ydim-2; y > 0; y--){
@@ -901,10 +990,31 @@ function stream(){
   }
 
   let fx = 0, fy = 0;
+  const w_omega = currentOmega;
 
     // Bounce-back on obstacle surface cells also gives a rough force estimate.
   for (let k = 0; k < barList.length; k += 2){
     const x = barList[k], y = barList[k+1], i = x + y*xdim;
+
+    let uwx = 0, uwy = 0;
+    if (w_omega !== 0) {
+      uwx = -w_omega * (y - cy);
+      uwy =  w_omega * (x - cx);
+      const wu2 = uwx*uwx + uwy*uwy;
+      if (wu2 > WALL_U_CAP*WALL_U_CAP){
+        const ws = WALL_U_CAP / Math.sqrt(wu2);
+        uwx *= ws;
+        uwy *= ws;
+      }
+    }
+
+    // Momentum exchange factors based on moving wall boundary rules
+    const d9_x = 0.6666667 * uwx;
+    const d9_y = 0.6666667 * uwy;
+    const d36_px_my = 0.1666667 * (uwx - uwy);
+    const d36_mx_my = 0.1666667 * (-uwx - uwy);
+    const d36_px_py = 0.1666667 * (uwx + uwy);
+    const d36_mx_py = 0.1666667 * (-uwx + uwy);
 
     if (!bar[i-1])      fx += 2*nE[i];
     if (!bar[i+1])      fx -= 2*nW[i];
@@ -916,14 +1026,14 @@ function stream(){
     if (!bar[i-1+xdim]){ fx += 2*nSE[i]; fy -= 2*nSE[i]; }
     if (!bar[i+1+xdim]){ fx -= 2*nSW[i]; fy -= 2*nSW[i]; }
 
-    if (!bar[i+1])      nE[x+1+y*xdim]      = nW[i];
-    if (!bar[i-1])      nW[x-1+y*xdim]      = nE[i];
-    if (!bar[i+xdim])   nN_[x+(y+1)*xdim]   = nS[i];
-    if (!bar[i-xdim])   nS[x+(y-1)*xdim]    = nN_[i];
-    if (!bar[i+1+xdim]) nNE[x+1+(y+1)*xdim] = nSW[i];
-    if (!bar[i-1+xdim]) nNW[x-1+(y+1)*xdim] = nSE[i];
-    if (!bar[i+1-xdim]) nSE[x+1+(y-1)*xdim] = nNW[i];
-    if (!bar[i-1-xdim]) nSW[x-1+(y-1)*xdim] = nNE[i];
+    if (!bar[i+1])      nE[x+1+y*xdim]      = nW[i] + d9_x;
+    if (!bar[i-1])      nW[x-1+y*xdim]      = nE[i] - d9_x;
+    if (!bar[i+xdim])   nN_[x+(y+1)*xdim]   = nS[i] - d9_y;
+    if (!bar[i-xdim])   nS[x+(y-1)*xdim]    = nN_[i] + d9_y;
+    if (!bar[i+1+xdim]) nNE[x+1+(y+1)*xdim] = nSW[i] + d36_px_my;
+    if (!bar[i-1+xdim]) nNW[x-1+(y+1)*xdim] = nSE[i] + d36_mx_my;
+    if (!bar[i+1-xdim]) nSE[x+1+(y-1)*xdim] = nNW[i] + d36_px_py;
+    if (!bar[i-1-xdim]) nSW[x-1+(y-1)*xdim] = nNE[i] + d36_mx_py;
   }
 
   Fx += fx;
@@ -933,11 +1043,17 @@ function stream(){
   outlet();
 }
 
-/* ================= TEST BODIES ================= */
-// The body is rebuilt as solid cells whenever angle or body type changes.
+/* ================= TEST BODIES & MULTI-ELEMENT SCENE ================= */
 const chord = Math.round(xdim * 0.32);
 const cx = Math.round(xdim * 0.40), cy = Math.round(ydim * 0.5);
-let bodyType = 'n0012', aoa = 6;
+
+let bodyType = 'n0012';
+let configMode = 'single'; // 'single', 'slatonly', 'flap', 'highlift'
+
+let aoa = 6, targetAoa = 6;
+let flapAngle = 20, targetFlapAngle = 20;
+let slatAngle = -20, targetSlatAngle = -20;
+
 let customP = {m:0.02, p:0.4, t:0.12, code:'2412'};
 
 // Preset and custom NACA parameters: max camber, camber location, thickness.
@@ -968,48 +1084,112 @@ function isSurfaceCell(x, y){
          !bar[i+1+xdim] || !bar[i-1+xdim] || !bar[i+1-xdim] || !bar[i-1-xdim];
 }
 
-// Recreate the solid-cell mask for the current body and angle of attack.
-function rebuildBody(keepFlow){
-  const old = bar.slice();
-  bar.fill(0);
-  barList = [];
+// Generate the array of bodies based on current configuration and angles
+function getSceneFoils() {
+  const foils = [];
+  if (bodyType === 'none' || bodyType === 'cyl') {
+    foils.push({ type: bodyType, cx, cy, chord, a: aoa * Math.PI/180, isMain: true });
+    return foils;
+  }
 
   const a = aoa * Math.PI/180;
   const ca = Math.cos(a), sa = Math.sin(a);
 
-  if (bodyType !== 'none'){
-    if (bodyType === 'cyl'){
-      const r = ydim * 0.11;
-      for (let y = 2; y < ydim-2; y++){
-        for (let x = 2; x < xdim-2; x++){
-          const dx = x - cx, dy = y - cy;
-          if (dx*dx + dy*dy <= r*r) bar[x + y*xdim] = 1;
-        }
+  // Main foil
+  foils.push({ type: bodyType, cx, cy, chord, a, isMain: true });
+
+  // Trailing Edge Flap (True Fowler Track: translates back exponentially, then deflects down)
+  if (configMode === 'flap' || configMode === 'highlift') {
+    const flapA = a + flapAngle * Math.PI/180;
+    const fDeflect = Math.max(0, flapAngle) / 40.0;
+    
+    // Curved kinematic track matching commercial aircraft mechanics
+    const dx = chord * (0.42 + 0.34 * Math.sin(fDeflect * Math.PI / 2));
+    const dy = chord * (0.00 + 0.14 * Math.pow(fDeflect, 1.5));
+    
+    const fcx = cx + dx*ca - dy*sa;
+    const fcy = cy + dx*sa + dy*ca;
+    foils.push({ type: 'n4415', cx: fcx, cy: fcy, chord: chord * 0.35, a: flapA, isMain: false });
+  }
+
+  // Leading Edge Slat (Arc track: slides forward and down curving under the nose profile)
+  if (configMode === 'slatonly' || configMode === 'highlift') {
+    const slatA = a + slatAngle * Math.PI/180;
+    const sDeflect = Math.max(0, -slatAngle) / 40.0;
+    
+    // Rotational orbit path to follow the front skin profile cleanly
+    const trackRadius = chord * 0.16;
+    const trackAngle = sDeflect * 0.65; // arc sweep
+    
+    const dx = chord * -0.41 - trackRadius * Math.sin(trackAngle);
+    const dy = chord * -0.01 + trackRadius * (1.0 - Math.cos(trackAngle));
+    
+    const scx = cx + dx*ca - dy*sa;
+    const scy = cy + dx*sa + dy*ca;
+    foils.push({ type: 'n4415', cx: scx, cy: scy, chord: chord * 0.25, a: slatA, isMain: false });
+  }
+
+  return foils;
+}
+
+// Check if a point is inside a specific foil component
+function isPointInFoil(x, y, f) {
+  if (f.type === 'none') return false;
+  if (f.type === 'cyl') {
+    const r = ydim * 0.11;
+    const dx = x - f.cx, dy = y - f.cy;
+    return (dx*dx + dy*dy <= r*r);
+  }
+  
+  const P = nacaParams(f.type);
+  const ca = Math.cos(f.a), sa = Math.sin(f.a);
+  const dx = x - f.cx, dy = y - f.cy;
+  const xa = dx*ca + dy*sa;
+  const yUp = -(-dx*sa + dy*ca);
+  const xc = xa/f.chord + 0.40;
+
+  if (xc < 0 || xc > 1) return false;
+
+  const yc = camber(xc, P.m, P.p);
+  const yt = Math.max(thickness(xc, P.t), 0.012);
+  const yn = yUp/f.chord;
+
+  return (yn >= yc - yt && yn <= yc + yt);
+}
+
+// Recreate the solid-cell mask with a dynamic Layer/Mask Priority approach
+function rebuildBody(keepFlow, isPitching = false){
+  const old = bar.slice();
+  bar.fill(0);
+  barList = [];
+
+  const foils = getSceneFoils();
+  const mainWing = foils.find(f => f.isMain);
+  const elements = foils.filter(f => !f.isMain);
+
+  for (let y = 2; y < ydim-2; y++){
+    for (let x = 2; x < xdim-2; x++){
+      const idx = x + y*xdim;
+      
+      // 1. Check top layer priority (Main wing)
+      if (mainWing && isPointInFoil(x, y, mainWing)) {
+        bar[idx] = 1;
+        continue;
       }
-    } else {
-      const P = nacaParams(bodyType);
-      for (let y = 2; y < ydim-2; y++){
-        for (let x = 2; x < xdim-2; x++){
-          const dx = x - cx, dy = y - cy;
-          const xa = dx*ca + dy*sa;
-          const yUp = -(-dx*sa + dy*ca);
-          const xc = xa/chord + 0.40;
-
-          if (xc < 0 || xc > 1) continue;
-
-          const yc = camber(xc, P.m, P.p);
-          const yt = Math.max(thickness(xc, P.t), 0.012);
-          const yn = yUp/chord;
-
-          if (yn >= yc - yt && yn <= yc + yt) bar[x + y*xdim] = 1;
+      
+      // 2. Check secondary layers (Flaps / Slats), only solidifying if they don't clip the main structure
+      for (const el of elements) {
+        if (isPointInFoil(x, y, el)) {
+          bar[idx] = 1;
+          break;
         }
       }
     }
+  }
 
-    for (let y = 1; y < ydim-1; y++){
-      for (let x = 1; x < xdim-1; x++){
-        if (isSurfaceCell(x, y)) barList.push(x, y);
-      }
+  for (let y = 1; y < ydim-1; y++){
+    for (let x = 1; x < xdim-1; x++){
+      if (isSurfaceCell(x, y)) barList.push(x, y);
     }
   }
 
@@ -1032,7 +1212,13 @@ function rebuildBody(keepFlow){
     }
   }
 
-  clearForces();
+  if (!isPitching){
+    clearForces();
+    smCl = 0;
+    smCd = 0;
+    smFluct = 0;
+    clearHist();
+  }
   drawBody();
 }
 
@@ -1094,7 +1280,7 @@ function advectParticles(){
     const x = px[k], y = py[k];
     const xi = x|0, yi = y|0;
 
-    if (xi < 1 || xi >= xdim-1 || bar[xi + yi*xdim]){
+    if (xi < 1 || xi >= xdim-1 || yi < 1 || yi >= ydim-1 || bar[xi + yi*xdim]){
       seedParticle(k);
       continue;
     }
@@ -1268,14 +1454,14 @@ function paintSmoke(){
   smokeCx.globalCompositeOperation = 'source-over';
 }
 
-function bodyOutline(){
-  const a = aoa*Math.PI/180, ca = Math.cos(a), sa = Math.sin(a);
+function bodyOutline(f){
+  const ca = Math.cos(f.a), sa = Math.sin(f.a);
   const pts = [];
-  const P = nacaParams(bodyType);
+  const P = nacaParams(f.type);
 
   const push = (xc, yn) => {
-    const xa = (xc - 0.40)*chord, yd = -yn*chord;
-    pts.push([(cx + xa*ca - yd*sa)*sx, (cy + xa*sa + yd*ca)*sy]);
+    const xa = (xc - 0.40)*f.chord, yd = -yn*f.chord;
+    pts.push([(f.cx + xa*ca - yd*sa)*sx, (f.cy + xa*sa + yd*ca)*sy]);
   };
 
   for (let s = 0; s <= 60; s++){
@@ -1309,19 +1495,50 @@ function drawBody(){
   bodyCx.strokeStyle = 'rgba(175,198,230,0.75)';
   bodyCx.lineWidth = 3.2*DPR;
   bodyCx.lineJoin = 'round';
-  bodyCx.beginPath();
+  
+  const foils = getSceneFoils();
+  const mainWing = foils.find(f => f.isMain);
+  const elements = foils.filter(f => !f.isMain);
 
-  if (bodyType === 'cyl'){
-    bodyCx.arc(cx*sx, cy*sy, ydim*0.11*sy, 0, Math.PI*2);
-  } else {
-    const pts = bodyOutline();
+  // 1. Draw secondary moving elements first
+  for (const f of elements) {
+    bodyCx.save();
+    bodyCx.beginPath();
+    const pts = bodyOutline(f);
     bodyCx.moveTo(pts[0][0], pts[0][1]);
     for (let k = 1; k < pts.length; k++) bodyCx.lineTo(pts[k][0], pts[k][1]);
     bodyCx.closePath();
+    bodyCx.fill();
+    bodyCx.stroke();
+    
+    // Apply internal overlapping mask removal to match real wing lines
+    if (mainWing && f.type !== 'cyl') {
+      bodyCx.globalCompositeOperation = 'destination-out';
+      bodyCx.beginPath();
+      const mPts = bodyOutline(mainWing);
+      bodyCx.moveTo(mPts[0][0], mPts[0][1]);
+      for (let k = 1; k < mPts.length; k++) bodyCx.lineTo(mPts[k][0], mPts[k][1]);
+      bodyCx.closePath();
+      bodyCx.fill();
+    }
+    bodyCx.restore();
   }
 
-  bodyCx.fill();
-  bodyCx.stroke();
+  // 2. Draw Main Wing directly on top layer to keep outline perfect
+  if (mainWing) {
+    bodyCx.beginPath();
+    if (mainWing.type === 'cyl') {
+      bodyCx.arc(mainWing.cx*sx, mainWing.cy*sy, ydim*0.11*sy, 0, Math.PI*2);
+    } else {
+      const pts = bodyOutline(mainWing);
+      bodyCx.moveTo(pts[0][0], pts[0][1]);
+      for (let k = 1; k < pts.length; k++) bodyCx.lineTo(pts[k][0], pts[k][1]);
+      bodyCx.closePath();
+    }
+    bodyCx.fill();
+    bodyCx.stroke();
+  }
+
   bodyCx.restore();
 }
 
@@ -1409,11 +1626,33 @@ polarCv.width = 560*DPR;
 polarCv.height = 150*DPR;
 const pcx = polarCv.getContext('2d');
 const polarData = new Map();
+let lastChange = performance.now();
+const SETTLE_MS = 1200;
+
+function touched(){
+  lastChange = performance.now();
+}
 
 function clearPolar(){
+  touched();
   polarData.clear();
   drawPolar();
   clearHist();
+}
+
+function recordPolarSample(){
+  if (!isWing() || !barList.length || currentOmega !== 0) return;
+
+  const age = performance.now() - lastChange;
+  if (age < 300) return;
+
+  const key = Math.round(aoa*2)/2;
+  const old = polarData.get(key);
+  const blend = age > SETTLE_MS ? 0.08 : 0.025;
+
+  polarData.set(key, old
+    ? {cl: old.cl*(1-blend) + smCl*blend, cd: old.cd*(1-blend) + smCd*blend}
+    : {cl: smCl, cd: smCd});
 }
 
 const AMIN = -45, AMAX = 45;
@@ -1669,8 +1908,8 @@ function estimateStrouhal(){
     const cur = hCl[j] - mean;
 
     if (prev <= 0 && cur > 0){
-      if (first < 0) first = j;
-      last = j;
+      if (first < 0) first = k;
+      last = k;
       crossings++;
     }
 
@@ -1680,7 +1919,9 @@ function estimateStrouhal(){
   if (crossings < 2 || first === last) return null;
 
   const cycles = crossings - 1;
-  const steps = hT[last] - hT[first];
+  const firstIdx = (hHead - hCount + first + HN) % HN;
+  const lastIdx = (hHead - hCount + last + HN) % HN;
+  const steps = hT[lastIdx] - hT[firstIdx];
 
   if (steps <= 0) return null;
 
@@ -1696,7 +1937,8 @@ function estimateStrouhal(){
 const clv = document.getElementById('clv'), cdv = document.getElementById('cdv'),
       ldv = document.getElementById('ldv'), rev = document.getElementById('rev'),
       fpsv = document.getElementById('fpsv'), hint = document.getElementById('hint'),
-      strow = document.getElementById('strow'), stv = document.getElementById('stv');
+      strow = document.getElementById('strow'), stv = document.getElementById('stv'),
+      liveAoaTag = document.getElementById('liveAoaTag');
 
 let smCl = 0, smCd = 0, fps = 0, lastT = performance.now(), stepsPerFrame = 10, frameCount = 0;
 let qMin = 6, qMax = 12, hintT = 0;
@@ -1706,7 +1948,7 @@ function isWing(){
 }
 
 function bodyName(){
-  return {
+  const base = {
     n0012:'NACA 0012',
     n2412:'NACA 2412',
     n4415:'NACA 4415',
@@ -1715,6 +1957,11 @@ function bodyName(){
     none:'EMPTY TUNNEL',
     custom:'NACA ' + customP.code
   }[bodyType];
+
+  if (!isWing() || configMode === 'single') return base;
+  if (configMode === 'slatonly') return base + ' w/ LE SLAT';
+  if (configMode === 'flap') return base + ' w/ TE FLAP';
+  return base + ' w/ SLAT & FLAP';
 }
 
 const bodyv = document.getElementById('bodyv');
@@ -1734,6 +1981,61 @@ function updateHint(){
   hint.textContent = flow;
 }
 
+function updateKinematics() {
+  let needsRebuild = false;
+  let isPitching = false;
+  
+  // Transition Time Logic: 8 degrees change over t_sec (scaled to 60fps)
+  const pitchTimeEl = document.getElementById('pitchTime');
+  const t_sec = parseFloat(pitchTimeEl.value) || 0.6;
+  const pitchRate = (8 / Math.max(0.1, t_sec)) / 60; 
+
+  // Main Wing Pitch
+  if (Math.abs(aoa - targetAoa) > 0.05) {
+    let step = Math.sign(targetAoa - aoa) * Math.min(pitchRate, Math.abs(targetAoa - aoa));
+    aoa += step;
+    currentOmega = (step * Math.PI / 180) / stepsPerFrame; 
+    needsRebuild = true;
+    isPitching = true;
+  } else if (aoa !== targetAoa) {
+    aoa = targetAoa;
+    needsRebuild = true;
+  }
+
+  // Flap Angle Pitch
+  if (Math.abs(flapAngle - targetFlapAngle) > 0.05) {
+    let step = Math.sign(targetFlapAngle - flapAngle) * Math.min(pitchRate, Math.abs(targetFlapAngle - flapAngle));
+    flapAngle += step;
+    needsRebuild = true;
+    isPitching = true;
+  } else if (flapAngle !== targetFlapAngle) {
+    flapAngle = targetFlapAngle;
+    needsRebuild = true;
+  }
+
+  // Slat Angle Pitch
+  if (Math.abs(slatAngle - targetSlatAngle) > 0.05) {
+    let step = Math.sign(targetSlatAngle - slatAngle) * Math.min(pitchRate, Math.abs(targetSlatAngle - slatAngle));
+    slatAngle += step;
+    needsRebuild = true;
+    isPitching = true;
+  } else if (slatAngle !== targetSlatAngle) {
+    slatAngle = targetSlatAngle;
+    needsRebuild = true;
+  }
+
+  if (!isPitching) currentOmega = 0;
+  
+  liveAoaTag.textContent = 'α live ' + aoa.toFixed(1) + '°';
+
+  if (needsRebuild) {
+    touched();
+    rebuildBody(true, isPitching);
+    if (isPitching) drawPolarLive();
+    updateHint();
+  }
+}
+
 function frame(now){
   requestAnimationFrame(frame);
 
@@ -1747,6 +2049,9 @@ function frame(now){
   else if (dt < 18 && stepsPerFrame < qMax) stepsPerFrame++;
 
   if (running){
+    
+    updateKinematics();
+
     for (let k = 0; k < NP; k++){
       ox[k] = px[k];
       oy[k] = py[k];
@@ -1763,13 +2068,15 @@ function frame(now){
 
     const probe = rho[cy*xdim + Math.min(xdim-3, cx + chord)];
 
-    if (!isFinite(probe) || probe <= 0.2 || probe > 5){
+    if (!isFinite(probe) || probe < RHO_MIN || probe > RHO_MAX){
       initFluid();
       initParticles();
       smokeCx.clearRect(0, 0, W, H);
 
       smCl = 0;
       smCd = 0;
+      smFluct = 0;
+      clearHist();
 
       hint.textContent = 'flow reset — try higher viscosity or lower speed';
       clearTimeout(hintT);
@@ -1777,6 +2084,7 @@ function frame(now){
     }
 
     if (forceSamples > 0 && barList.length){
+      // For multi-element foils, reference length remains the main chord.
       const Lforce = bodyType === 'cyl' ? 2*ydim*0.11 : chord;
       // Non-dimensionalise forces into approximate CL and CD values.
       const q = 0.5*u0*u0*Lforce;
@@ -1791,9 +2099,7 @@ function frame(now){
       clearForces();
     }
 
-    if (isWing() && barList.length){
-      polarData.set(Math.round(aoa*2)/2, {cl: smCl, cd: smCd});
-    }
+    recordPolarSample();
 
     if (frameCount % 2 === 0) drawTime();
     if (frameCount % 6 === 0){
@@ -1832,8 +2138,42 @@ function frame(now){
 /* ================= CONTROLS ================= */
 // UI controls update the solver state immediately.
 const aoaEl = document.getElementById('aoa'), aoavEl = document.getElementById('aoav');
+const flapAoaEl = document.getElementById('flapAoa'), flapAoavEl = document.getElementById('flapAoav');
+const slatAoaEl = document.getElementById('slatAoa'), slatAoavEl = document.getElementById('slatAoav');
+
 const spdEl = document.getElementById('spd'), spdvEl = document.getElementById('spdv');
 const viscEl = document.getElementById('visc'), viscvEl = document.getElementById('viscv');
+
+const pitchTimeEl = document.getElementById('pitchTime');
+const pitchTimeVEl = document.getElementById('pitchTimeV');
+
+// Pitch Transition Controls
+pitchTimeEl.addEventListener('input', () => {
+  pitchTimeVEl.textContent = parseFloat(pitchTimeEl.value).toFixed(1) + ' s';
+});
+
+document.getElementById('btnPitchMinus').addEventListener('click', () => {
+  targetAoa = Math.max(-45, targetAoa - 8);
+  aoaEl.value = targetAoa;
+  touched();
+  aoavEl.textContent = targetAoa.toFixed(1) + '°';
+});
+
+document.getElementById('btnPitchPlus').addEventListener('click', () => {
+  targetAoa = Math.min(45, targetAoa + 8);
+  aoaEl.value = targetAoa;
+  touched();
+  aoavEl.textContent = targetAoa.toFixed(1) + '°';
+});
+
+document.getElementById('btnPitchSnap').addEventListener('click', () => {
+  aoa = targetAoa;
+  currentOmega = 0;
+  rebuildBody(true, false);
+  updateHint();
+  touched();
+  liveAoaTag.textContent = 'α live ' + aoa.toFixed(1) + '°';
+});
 
 function clearUPresets(){
   document.querySelectorAll('#uPresets .chip').forEach(c => {
@@ -1843,12 +2183,19 @@ function clearUPresets(){
 }
 
 aoaEl.addEventListener('input', () => {
-  aoa = parseFloat(aoaEl.value);
-  aoavEl.textContent = aoa.toFixed(1) + '°';
-
-  rebuildBody(true);
+  targetAoa = parseFloat(aoaEl.value);
+  aoavEl.textContent = targetAoa.toFixed(1) + '°';
   recomputeVisc();
-  updateHint();
+});
+
+flapAoaEl.addEventListener('input', () => {
+  targetFlapAngle = parseFloat(flapAoaEl.value);
+  flapAoavEl.textContent = targetFlapAngle.toFixed(1) + '°';
+});
+
+slatAoaEl.addEventListener('input', () => {
+  targetSlatAngle = parseFloat(slatAoaEl.value);
+  slatAoavEl.textContent = targetSlatAngle.toFixed(1) + '°';
 });
 
 spdEl.addEventListener('input', () => {
@@ -1992,7 +2339,7 @@ document.getElementById('nacaGo').addEventListener('click', applyCustomNaca);
 nacaIn.addEventListener('input', () => { nacaIn.value = nacaIn.value.replace(/\D/g, ''); });
 nacaIn.addEventListener('keydown', e => { if (e.key === 'Enter') applyCustomNaca(); });
 
-// Body buttons switch the geometry and clear old curve/history data.
+// Handle body type changes
 document.getElementById('bodies').addEventListener('click', e => {
   const b = e.target.closest('.chip');
   if (!b || !b.dataset.b) return;
@@ -2003,11 +2350,60 @@ document.getElementById('bodies').addEventListener('click', e => {
 
   bodyType = b.dataset.b;
 
+  // Multi-element only applies to foils, hide config if plate/cyl/none
+  const configRow = document.getElementById('rowConfig');
+  if (!isWing() || bodyType === 'plate') {
+    configRow.classList.add('hidden');
+    document.getElementById('rowFlap').classList.add('hidden');
+    document.getElementById('rowSlat').classList.add('hidden');
+    configMode = 'single';
+  } else {
+    configRow.classList.remove('hidden');
+    updateConfigVisibility();
+  }
+
   rebuildBody(true);
   recomputeVisc();
   clearPolar();
   updateHint();
 });
+
+// Handle config multi-element changes
+document.getElementById('configs').addEventListener('click', e => {
+  const b = e.target.closest('.chip');
+  if (!b || !b.dataset.c) return;
+
+  document.querySelectorAll('#configs .chip').forEach(c => c.classList.remove('on'));
+  b.classList.add('on');
+  syncPressed('#configs .chip');
+
+  configMode = b.dataset.c;
+  updateConfigVisibility();
+
+  rebuildBody(true);
+  recomputeVisc();
+  clearPolar();
+  updateHint();
+});
+
+function updateConfigVisibility() {
+  const rowFlap = document.getElementById('rowFlap');
+  const rowSlat = document.getElementById('rowSlat');
+
+  if (configMode === 'single') {
+    rowFlap.classList.add('hidden');
+    rowSlat.classList.add('hidden');
+  } else if (configMode === 'slatonly') {
+    rowFlap.classList.add('hidden');
+    rowSlat.classList.remove('hidden');
+  } else if (configMode === 'flap') {
+    rowFlap.classList.remove('hidden');
+    rowSlat.classList.add('hidden');
+  } else if (configMode === 'highlift') {
+    rowFlap.classList.remove('hidden');
+    rowSlat.classList.remove('hidden');
+  }
+}
 
 const vwV = document.getElementById('vwVort'), vwS = document.getElementById('vwSpeed'),
       vwP = document.getElementById('vwPress');
@@ -2131,7 +2527,6 @@ function exportLiftCurveCsv(){
   );
 }
 
-// Snapshot combines the visible layers into one PNG.
 // Snapshot combines the visible layers into one PNG.
 function exportSnapshot(){
   drawColorbar();
@@ -2263,10 +2658,11 @@ window.addEventListener('keydown', e => {
 
 /* ================= START ================= */
 // Initial UI sync, solver setup, and animation start.
-aoavEl.textContent = aoa.toFixed(1) + '°';
+aoavEl.textContent = targetAoa.toFixed(1) + '°';
 spdvEl.textContent = speedLabel(u0);
 
 setVisc();
+updateConfigVisibility();
 
 document.querySelectorAll('#fluids .chip').forEach(c => {
   const on = parseInt(c.dataset.v) === parseInt(viscEl.value);
@@ -2288,11 +2684,11 @@ requestAnimationFrame(frame);
   const vref   = document.getElementById('vref');
   const liveLu = document.getElementById('liveLu');
   const liveMs = document.getElementById('liveMs');
-  const U_REF  = 0.10;                    // the reference u0 that V_ref represents
+  const U_REF  = 0.10;                     // the reference u0 that V_ref represents
 
   function refresh(){
     const V = parseFloat(vref.value) || 0;
-    const ms = u0 * (V / U_REF);          // v = u0 × (V_ref / u0_ref)
+    const ms = u0 * (V / U_REF);           // v = u0 × (V_ref / u0_ref)
     liveLu.textContent = u0.toFixed(3);
     liveMs.textContent = ms.toFixed(1);
   }
