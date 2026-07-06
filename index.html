@@ -275,7 +275,7 @@ h1 .tick{color:var(--amber)}
   min-width:230px;
   flex:1;
 }
-.slider input{
+.slider input[type=range]{
   flex:1;
   appearance:none;
   -webkit-appearance:none;
@@ -284,7 +284,7 @@ h1 .tick{color:var(--amber)}
   border-radius:2px;
   cursor:pointer;
 }
-.slider input::-webkit-slider-thumb{
+.slider input[type=range]::-webkit-slider-thumb{
   appearance:none;
   -webkit-appearance:none;
   width:14px;
@@ -294,13 +294,23 @@ h1 .tick{color:var(--amber)}
   border:2px solid #05080f;
   box-shadow:0 0 8px rgba(255,180,84,.6);
 }
-.slider input::-moz-range-thumb{
+.slider input[type=range]::-moz-range-thumb{
   width:14px;
   height:14px;
   border-radius:50%;
   background:var(--amber);
   border:2px solid #05080f;
 }
+/* Hide spin buttons for number input */
+input[type=number]::-webkit-inner-spin-button, 
+input[type=number]::-webkit-outer-spin-button { 
+  -webkit-appearance: none; 
+  margin: 0; 
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
 .sval{
   font-family:'IBM Plex Mono',monospace;
   font-size:12px;
@@ -502,27 +512,30 @@ footer b{color:#9fb2d2;font-weight:500}
     <span class="plabel">Target α</span>
     <div class="slider">
       <input type="range" id="aoa" min="-45" max="45" step="0.1" value="6" aria-label="Angle of attack in degrees">
-      <span class="sval" id="aoav">6.0°</span>
+      <div style="display: flex; align-items: center; justify-content: flex-end; min-width: 104px;">
+        <input type="number" id="aoaInput" value="6.0" step="0.1" style="width: 54px; background: rgba(255,180,84,0.05); border: 1px solid rgba(255,180,84,0.3); border-radius: 4px; color: var(--amber); font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right; padding: 2px 4px; outline: none;">
+        <span style="color: var(--amber); font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-left: 4px;">°</span>
+      </div>
     </div>
 
-    <span class="plabel">Inlet&nbsp;u₀</span>
+    <span class="plabel">Wind speed</span>
     <div class="slider">
-      <input 
-        type="range" 
-        id="spd" 
-        min="0.02" 
-        max="0.33" 
-        step="0.005" 
-        value="0.10" 
-        aria-label="Inlet velocity in lattice units"
-        title="Inlet velocity in lattice units (cells per step). Stable LBM band ≈ 0.02–0.20.">
-      <span class="sval" id="spdv">0.100 lu</span>
+      <input
+        type="range"
+        id="spd"
+        min="6"
+        max="99"
+        step="1"
+        value="30"
+        aria-label="Wind speed in metres per second"
+        title="Displayed in m/s. Internally mapped to safe LBM lattice velocity before entering the solver.">
+      <span class="sval" id="spdv">30 m/s</span>
     </div>
 
-    <div class="chips" id="uPresets" role="group" aria-label="Inlet velocity presets">
-      <button type="button" class="chip" data-u="0.05" aria-pressed="false" title="Gentle, low-Re flow">u 0.05</button>
-      <button type="button" class="chip" data-u="0.10" aria-pressed="false" title="Reference flow">u 0.10</button>
-      <button type="button" class="chip" data-u="0.20" aria-pressed="false" title="Top of the stable band">u 0.20</button>
+    <div class="chips" id="uPresets" role="group" aria-label="Wind speed presets">
+      <button type="button" class="chip" data-ms="15" aria-pressed="false" title="Gentle low-speed flow">15 m/s</button>
+      <button type="button" class="chip" data-ms="30" aria-pressed="false" title="Reference flow">30 m/s</button>
+      <button type="button" class="chip" data-ms="60" aria-pressed="false" title="Fast flow, still inside the stable solver band">60 m/s</button>
     </div>
   </div>
 
@@ -649,19 +662,27 @@ footer b{color:#9fb2d2;font-weight:500}
     <div class="keyrow"><span class="what">Paint smoke</span><span class="how">click / drag tunnel</span></div>
   </div>
 
-  <!-- LIVE lu → m/s CONVERTER -->
-<div class="card">
-  <h2>Live lu → m/s</h2>
+  <!-- Physical reference values and real-force estimate. The only visible speed control is now in the main panel. -->
+  <div class="card">
+    <h2>Physical Scale (1 atm, 20°C)</h2>
+    <div class="keyrow" style="margin-top:10px">
+      <span class="what" style="color:var(--dim)">Density (ρ)</span>
+      <span class="how">1.204 kg/m³</span>
+    </div>
+    <div class="keyrow">
+      <span class="what" style="color:var(--dim)">Solver speed</span>
+      <span class="how"><span id="liveLu" style="color:var(--amber)">0.100</span> lu</span>
+    </div>
+    <p style="font-size:11px;color:rgba(140,160,190,.6);font-family:'IBM Plex Mono',monospace;margin-top:8px">
+      Main speed is shown in m/s. The LBM core still receives the equivalent stable lattice velocity.
+    </p>
 
-  <div style="display:flex;align-items:center;gap:8px;margin:10px 0 4px">
-
-<input id="vref" type="hidden" value="30" min="0" step="1">
+    <!-- Force output based on the displayed m/s speed and 1.204 kg/m³ density. -->
+    <div style="display:flex; justify-content:space-between; margin-top:12px; border-top:1px solid var(--line); padding-top:12px; font-family:'IBM Plex Mono',monospace; font-size:12px;">
+       <div>L: <span id="liveLiftN" style="color:var(--amber)">0.0</span> N</div>
+       <div>D: <span id="liveDragN" style="color:var(--cyan)">0.0</span> N</div>
+    </div>
   </div>
-  <p style="font-size:15px;color:var(--amber);font-family:'IBM Plex Mono',monospace;margin-top:8px">
-    <span id="liveLu">0.100</span> lu → <span id="liveMs" style="color:#e8eefa">30.0</span> m/s
-  </p>
-  <p style="margin-top:4px;color:rgba(140,160,190,.6)"></p>
-</div>
 
   <div class="card">
     <h2>Flow status</h2>
@@ -673,15 +694,15 @@ footer b{color:#9fb2d2;font-weight:500}
   </div>
   <div class="card">
     <h2>About</h2>
-    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle"></span>The solver runs entirely in <b>"lattice units"</b>, and so does the display — see "Reading the units" for how to map u₀ to m/s if you want a physical speed.</p>
+    <p>A real-time lattice-Boltzmann wind tunnel by <span class="name">Sarujan Srikaran</span> <span class="handle"></span>The solver runs in <b>"lattice units"</b> internally, while the control panel shows speed in m/s for easier use.</p>
   </div>
 </aside>
 </div>
 
 <footer>
   <b>The physics:</b> D2Q9 Lattice-Boltzmann with BGK collision plus <b>Smagorinsky-style eddy-viscosity stabilisation</b>. 
-  All velocities are shown in <b>lattice units (lu)</b> — the inlet u₀ is cells per step. 
-  The stable band is roughly <b>0.02–0.20 lu</b>; see the "Reading the units" card for the lu → m/s conversion. This is a low-Mach educational LBM solver.
+  The control panel shows wind speed in <b>m/s</b>, but the solver still converts it to <b>lattice units (lu)</b> internally. 
+  The stable band is roughly <b>0.02–0.20 lu</b>; this is a low-Mach educational LBM solver.
   <br>
   <p style="text-align:center"><b>Feedback is appreciated!, The whole source file is hosted in my github account.</b></p>
   <p style="text-align:center"><b>Built by Sarujan Srikaran</b></p>
@@ -710,18 +731,30 @@ const bar = new Uint8Array(N); // Solid cells: 1 = obstacle/body, 0 = fluid.
 let barList = [];
 
 /*
-  Everything is now in LATTICE UNITS (lu).
-  u0 is the inlet velocity in lattice units (cells per step).
-  There is no m/s conversion baked into the solver anymore — the
-  "Reading the units" side card explains how to map lu -> m/s yourself.
-  Keep u0 roughly in 0.02 .. 0.20; above ~0.2 the LBM compressibility
-  error grows and the flow can go unstable.
+  The LBM solver still runs in lattice units (lu).
+  The UI now shows wind speed in m/s, then maps it to u0 before the
+  solver uses it. Reference scale: 30 m/s = 0.10 lu.
+  Keep u0 roughly in 0.02 .. 0.20 for the cleanest low-Mach behaviour.
 */
-function speedLabel(u_lattice){
-  return u_lattice.toFixed(3) + ' lu';
+const U_REF = 0.10;
+const MS_REF = 30;
+const U_MIN = 0.02;
+const U_MAX = 0.33;
+
+function msToLu(v_ms){
+  return Math.min(U_MAX, Math.max(U_MIN, (v_ms / MS_REF) * U_REF));
 }
 
-let u0 = 0.10;   // lively default, comfortably inside the stable LBM band
+function luToMs(u_lattice){
+  return (u_lattice / U_REF) * MS_REF;
+}
+
+function speedLabelMs(v_ms){
+  return Math.round(v_ms) + ' m/s';
+}
+
+let velocityMS = MS_REF;
+let u0 = msToLu(velocityMS);   // solver value in lattice units
 
 let nu = 0.014;
 let nuSlider = 0.014;
@@ -758,12 +791,41 @@ function nuFloorRaw(u, A){
        + (NUF_T[iu][ia+1]*(1-tu) + NUF_T[iu+1][ia+1]*tu)*ta;
 }
 
-// Outlet sponge gently damps disturbances before they hit the right boundary.
-const SPONGE_W = 28;
-const sponge = new Float32Array(xdim);
-for (let x = 0; x < xdim; x++){
-  const d = x - (xdim - 1 - SPONGE_W);
-  sponge[x] = d > 0 ? (d/SPONGE_W)*(d/SPONGE_W)*0.6 : 0;
+/*
+  Absorbing layers on all four sides of the domain.
+
+  These add extra viscosity in a thin border region so that acoustic (pressure)
+  waves are damped BEFORE they reach a boundary and reflect. LBM is weakly
+  compressible and carries sound at cs = 1/sqrt(3); near stall the body radiates
+  pressure fluctuations continuously. With perfectly reflecting walls (free-slip
+  top/bottom, hard-equilibrium inlet) that sound has nowhere to go, bounces
+  around, and forms a standing criss-cross interference pattern in the field.
+  A gentle sponge on every side lets those waves leave quietly.
+
+  The right (outlet) layer is strongest because the mean flow exits there.
+  The left/top/bottom layers are kept gentle so they damp fluctuations without
+  distorting the uniform free-stream that should pass through them.
+*/
+const SPONGE_R   = 30,  SPONGE_MAX_R  = 0.60;  // outlet
+const SPONGE_L   = 10,  SPONGE_MAX_L  = 0.22;  // inlet
+const SPONGE_TB  = 8,   SPONGE_MAX_TB = 0.25;  // top / bottom walls
+
+const spongeF = new Float32Array(N);
+for (let y = 0; y < ydim; y++){
+  for (let x = 0; x < xdim; x++){
+    let s = 0;
+
+    const dr = x - (xdim - 1 - SPONGE_R);          // distance into right layer
+    if (dr > 0){ const t = dr/SPONGE_R;  s = Math.max(s, t*t*SPONGE_MAX_R); }
+
+    const dl = SPONGE_L - x;                        // distance into left layer
+    if (dl > 0){ const t = dl/SPONGE_L;  s = Math.max(s, t*t*SPONGE_MAX_L); }
+
+    const dtb = Math.max(SPONGE_TB - y, SPONGE_TB - (ydim - 1 - y));
+    if (dtb > 0){ const t = dtb/SPONGE_TB; s = Math.max(s, t*t*SPONGE_MAX_TB); }
+
+    spongeF[x + y*xdim] = s;
+  }
 }
 
 let running = true;
@@ -931,7 +993,7 @@ function collide(){
       const Pxy = dNE - dNW - dSE + dSW;
       const Q = Math.sqrt(Pxx*Pxx + Pyy*Pyy + 2*Pxy*Pxy);
 
-      const tl = tauBase + sponge[x];
+      const tl = tauBase + spongeF[i];
       const tauEff = 0.5*(tl + Math.sqrt(tl*tl + 18*Cs2*Q/r));
       const om = 1/tauEff;
 
@@ -1212,13 +1274,12 @@ function rebuildBody(keepFlow, isPitching = false){
     }
   }
 
-  if (!isPitching){
+  if (!isPitching) {
     clearForces();
-    smCl = 0;
-    smCd = 0;
-    smFluct = 0;
-    clearHist();
+    // Intentionally removed clearHist() and clearPolar() from here 
+    // so the graphs don't randomly wipe at the end of a pitch transition!
   }
+  
   drawBody();
 }
 
@@ -1343,11 +1404,54 @@ function jet(t){
 
 const scal = new Float32Array(N), scal2 = new Float32Array(N);
 
+// Working buffers for a lightly smoothed copy of the velocity field.
+// Vorticity is a spatial derivative of velocity, and differentiation strongly
+// amplifies the highest-frequency (grid-scale) content. At low viscosity the
+// LBM always carries some 2-cell velocity ripple; taking the raw curl and
+// scaling it hard turns that ripple into full-saturation colour, which reads as
+// a spurious criss-cross net across otherwise-uniform flow. Smoothing the
+// velocity first removes the grid-scale ripple while leaving real, spatially
+// coherent shear layers and vortices intact.
+const uxS = new Float32Array(N), uyS = new Float32Array(N),
+      uxT = new Float32Array(N), uyT = new Float32Array(N);
+
+function smoothVelocity(passes){
+  uxS.set(ux); uyS.set(uy);
+  for (let p = 0; p < passes; p++){
+    // horizontal [1,2,1]/4
+    for (let y = 1; y < ydim-1; y++){
+      const row = y*xdim;
+      for (let x = 1; x < xdim-1; x++){
+        const i = row + x;
+        if (bar[i]){ uxT[i] = uxS[i]; uyT[i] = uyS[i]; continue; }
+        uxT[i] = (uxS[i-1] + 2*uxS[i] + uxS[i+1]) * 0.25;
+        uyT[i] = (uyS[i-1] + 2*uyS[i] + uyS[i+1]) * 0.25;
+      }
+    }
+    // vertical [1,2,1]/4
+    for (let y = 1; y < ydim-1; y++){
+      const row = y*xdim;
+      for (let x = 1; x < xdim-1; x++){
+        const i = row + x;
+        if (bar[i]){ uxS[i] = uxT[i]; uyS[i] = uyT[i]; continue; }
+        uxS[i] = (uxT[i-xdim] + 2*uxT[i] + uxT[i+xdim]) * 0.25;
+        uyS[i] = (uyT[i-xdim] + 2*uyT[i] + uyT[i+xdim]) * 0.25;
+      }
+    }
+  }
+}
+
 // Convert the chosen scalar field into pixels, then upscale it to the visible canvas.
 function paintField(){
   const d = img.data;
-  const vs = 26/u0;
+  // Display gain for vorticity. Lowered from 26 to 15 so that residual
+  // grid-scale ripple no longer saturates the colour map; genuine shear layers
+  // are strong enough to stay bold at this gain. See smoothVelocity() above.
+  const vs = 15/u0;
   const ss = 1/(u0*1.7);
+
+  // Pre-smooth velocity once per frame for the vorticity view only.
+  if (viewMode === 'vort') smoothVelocity(2);
 
   for (let y = 0; y < ydim; y++){
     for (let x = 0; x < xdim; x++){
@@ -1360,7 +1464,7 @@ function paintField(){
       if (viewMode === 'vort'){
         let curl = 0;
         if (x>0 && x<xdim-1 && y>0 && y<ydim-1){
-          curl = (uy[i+1]-uy[i-1]) - (ux[i+xdim]-ux[i-xdim]);
+          curl = (uyS[i+1]-uyS[i-1]) - (uxS[i+xdim]-uxS[i-xdim]);
         }
         let t = curl*vs;
         if (t > 1) t = 1; else if (t < -1) t = -1;
@@ -1391,6 +1495,11 @@ function paintField(){
     }
   }
 
+  // Light separable [1,2,1] smoothing of the scalar field before upscaling.
+  // For the vorticity view the velocity was already pre-smoothed (see
+  // smoothVelocity), so two gentle passes here are enough to remove any residual
+  // grid-scale speckle without softening real flow features; the same passes
+  // also tidy the pressure and speed views.
   for (let it = 0; it < 2; it++){
     for (let y = 0; y < ydim; y++){
       const row = y*xdim;
@@ -1573,11 +1682,9 @@ function drawColorbar(){
   if (viewMode === 'vort'){
     title = 'VORTICITY';
     unit = 'ω·c/u0';
-    // curl computed in paintField is a 2-cell central difference = 2·ω,
-    // so the true vorticity extreme in ω·c/u0 units is chord/52, not chord/26.
-    lo = '−' + (chord/52).toFixed(1);
+    lo = '−' + (chord/30).toFixed(1);
     mid = '0';
-    hi = '+' + (chord/52).toFixed(1);
+    hi = '+' + (chord/30).toFixed(1);
   } else if (viewMode === 'press'){
     title = 'PRESSURE';
     unit = 'Cp';
@@ -1619,40 +1726,60 @@ function drawColorbar(){
   tick(by + bh, lo);
 }
 
-/* ================= CHARTS ================= */
-// Polar chart stores averaged force points for each angle of attack.
+/* ================= CHARTS & HISTORY ================= */
 const polarCv = document.getElementById('polar');
 polarCv.width = 560*DPR;
 polarCv.height = 150*DPR;
 const pcx = polarCv.getContext('2d');
-const polarData = new Map();
-let lastChange = performance.now();
-const SETTLE_MS = 1200;
 
-function touched(){
-  lastChange = performance.now();
+const thistCv = document.getElementById('thist');
+thistCv.width = 560*DPR;
+thistCv.height = 150*DPR;
+const tcx = thistCv.getContext('2d');
+
+// --- TIME GRAPH BUFFERS (Rolling) ---
+const HN = 600;
+const hCl = new Float32Array(HN), hCd = new Float32Array(HN), hT = new Float32Array(HN);
+let hHead = 0, hCount = 0, simSteps = 0;
+
+// --- POLAR GRAPH BUFFERS (Persistent Trace) ---
+let pHist = []; 
+const MAX_PHIST = 3000; 
+let longSmCl = 0, longSmCd = 0; 
+
+function clearHist(){
+  hHead = 0;
+  hCount = 0;
+  drawTime();
 }
 
 function clearPolar(){
-  touched();
-  polarData.clear();
+  pHist = [];
   drawPolar();
-  clearHist();
 }
 
-function recordPolarSample(){
-  if (!isWing() || !barList.length || currentOmega !== 0) return;
+// Master reset function to cleanly wipe state and canvases on user command
+function resetGraphsAndAverages() {
+  smCl = 0; smCd = 0;
+  longSmCl = 0; longSmCd = 0;
+  smFluct = 0;
+  clearHist();
+  clearPolar();
+}
 
-  const age = performance.now() - lastChange;
-  if (age < 300) return;
+function pushHist(cl, cd){
+  if (!isFinite(cl) || !isFinite(cd)) return; // Prevent NaN poison
+  hCl[hHead] = cl;
+  hCd[hHead] = cd;
+  hT[hHead] = simSteps;
+  hHead = (hHead + 1) % HN;
+  if (hCount < HN) hCount++;
+}
 
-  const key = Math.round(aoa*2)/2;
-  const old = polarData.get(key);
-  const blend = age > SETTLE_MS ? 0.08 : 0.025;
-
-  polarData.set(key, old
-    ? {cl: old.cl*(1-blend) + smCl*blend, cd: old.cd*(1-blend) + smCd*blend}
-    : {cl: smCl, cd: smCd});
+function pushPolar(a, cl, cd) {
+  if (!isFinite(cl) || !isFinite(cd)) return; // Prevent NaN poison
+  pHist.push({a, cl, cd});
+  if (pHist.length > MAX_PHIST) pHist.shift();
 }
 
 const AMIN = -45, AMAX = 45;
@@ -1672,105 +1799,60 @@ function drawPolar(){
 
   const vmin = -1.5, vmax = 1.8;
 
+  // Gridlines
   pcx.strokeStyle = 'rgba(140,170,220,0.10)';
   pcx.lineWidth = 1;
-
   for (const gv of [-1.0, -0.5, 0, 0.5, 1.0, 1.5]){
     const [,Y] = polarXY(0, gv, vmin, vmax);
-    pcx.beginPath();
-    pcx.moveTo(40*DPR, Y);
-    pcx.lineTo(PW-12*DPR, Y);
-    pcx.stroke();
+    pcx.beginPath(); pcx.moveTo(40*DPR, Y); pcx.lineTo(PW-12*DPR, Y); pcx.stroke();
     pcx.fillText(gv.toFixed(1), 8*DPR, Y + 3*DPR);
   }
-
   for (const ga of [-45, -30, -15, 0, 15, 30, 45]){
     const [X] = polarXY(ga, 0, vmin, vmax);
-    pcx.beginPath();
-    pcx.moveTo(X, 8*DPR);
-    pcx.lineTo(X, PH-18*DPR);
-    pcx.stroke();
+    pcx.beginPath(); pcx.moveTo(X, 8*DPR); pcx.lineTo(X, PH-18*DPR); pcx.stroke();
     pcx.fillText(ga + '°', X - 8*DPR, PH - 5*DPR);
   }
 
+  // Zero Line
   pcx.strokeStyle = 'rgba(140,170,220,0.28)';
   const [,Y0] = polarXY(0, 0, vmin, vmax);
-  pcx.beginPath();
-  pcx.moveTo(40*DPR, Y0);
-  pcx.lineTo(PW-12*DPR, Y0);
-  pcx.stroke();
+  pcx.beginPath(); pcx.moveTo(40*DPR, Y0); pcx.lineTo(PW-12*DPR, Y0); pcx.stroke();
 
-  if (!polarData.size) return;
+  if (pHist.length < 2) return;
 
-  const pts = [...polarData.entries()].sort((a,b) => a[0]-b[0]);
-
+  // The smoothed continuous trace
   const trace = (key, color, scale = 1) => {
     pcx.strokeStyle = color;
-    pcx.fillStyle = color;
-    pcx.lineWidth = 1.5*DPR;
+    pcx.lineWidth = 2.0*DPR; 
     pcx.beginPath();
 
-    pts.forEach(([a, v], j) => {
-      const [X, Y] = polarXY(a, Math.min(Math.max(v[key]*scale, vmin), vmax), vmin, vmax);
-      j ? pcx.lineTo(X, Y) : pcx.moveTo(X, Y);
-    });
-
-    pcx.stroke();
-
-    for (const [a, v] of pts){
-      const [X, Y] = polarXY(a, Math.min(Math.max(v[key]*scale, vmin), vmax), vmin, vmax);
-      pcx.beginPath();
-      pcx.arc(X, Y, 2.4*DPR, 0, Math.PI*2);
-      pcx.fill();
+    for(let k = 0; k < pHist.length; k++){
+      const pt = pHist[k];
+      const [X, Y] = polarXY(pt.a, Math.min(Math.max(pt[key]*scale, vmin), vmax), vmin, vmax);
+      k ? pcx.lineTo(X, Y) : pcx.moveTo(X, Y);
     }
+    pcx.stroke();
   };
 
   trace('cd', 'rgba(95,220,255,0.85)', 2);
   trace('cl', 'rgba(255,180,84,0.95)', 1);
 }
 
-// Draw live markers without committing them to the stored lift curve.
 function drawPolarLive(){
   if (!isWing() || !barList.length) return;
-
   const vmin = -1.5, vmax = 1.8;
 
   const mark = (val, color) => {
     const [X, Y] = polarXY(aoa, Math.min(Math.max(val, vmin), vmax), vmin, vmax);
     pcx.strokeStyle = color;
+    pcx.fillStyle = color;
     pcx.lineWidth = 1.6*DPR;
-    pcx.beginPath();
-    pcx.arc(X, Y, 4*DPR, 0, Math.PI*2);
-    pcx.stroke();
+    pcx.beginPath(); pcx.arc(X, Y, 4*DPR, 0, Math.PI*2);
+    pcx.stroke(); pcx.fill();
   };
 
-  mark(smCd*2, 'rgba(95,220,255,0.85)');
-  mark(smCl,   'rgba(255,180,84,0.95)');
-}
-
-const thistCv = document.getElementById('thist');
-thistCv.width = 560*DPR;
-thistCv.height = 150*DPR;
-const tcx = thistCv.getContext('2d');
-
-// Circular buffers keep the latest force history without growing forever.
-const HN = 600;
-const hCl = new Float32Array(HN), hCd = new Float32Array(HN), hT = new Float32Array(HN);
-let hHead = 0, hCount = 0, simSteps = 0;
-
-function clearHist(){
-  hHead = 0;
-  hCount = 0;
-  drawTime();
-}
-
-function pushHist(cl, cd){
-  hCl[hHead] = cl;
-  hCd[hHead] = cd;
-  hT[hHead] = simSteps;
-
-  hHead = (hHead + 1) % HN;
-  if (hCount < HN) hCount++;
+  mark(longSmCd*2, 'rgba(95,220,255,0.85)');
+  mark(longSmCl,   'rgba(255,180,84,0.95)');
 }
 
 function drawTime(){
@@ -1790,7 +1872,6 @@ function drawTime(){
 
   for (let k = 0; k < hCount; k++){
     const j = (hHead - hCount + k + HN) % HN;
-
     if (hCl[j] < lo) lo = hCl[j];
     if (hCl[j] > hi) hi = hCl[j];
     if (hCd[j] < lo) lo = hCd[j];
@@ -1831,13 +1912,11 @@ function drawTime(){
     tcx.strokeStyle = color;
     tcx.lineWidth = 1.4*DPR;
     tcx.beginPath();
-
     for (let k = 0; k < hCount; k++){
       const j = (hHead - hCount + k + HN) % HN;
       const px_ = X(HN - hCount + k), py_ = Y(arr[j]);
       k ? tcx.lineTo(px_, py_) : tcx.moveTo(px_, py_);
     }
-
     tcx.stroke();
   };
 
@@ -1855,15 +1934,12 @@ function clFluct(win){
   if (n < 20) return 0;
 
   let lo = Infinity, hi = -Infinity;
-
   for (let k = 0; k < n; k++){
     const j = (hHead - n + k + HN) % HN;
     const v = hCl[j];
-
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-
   return hi - lo;
 }
 
@@ -1886,16 +1962,13 @@ function estimateStrouhal(){
   if (bodyType !== 'cyl' || hCount < 180 || u0 <= 0) return null;
 
   let mean = 0, lo = Infinity, hi = -Infinity;
-
   for (let k = 0; k < hCount; k++){
     const j = (hHead - hCount + k + HN) % HN;
     const v = hCl[j];
-
     mean += v;
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-
   mean /= hCount;
 
   if (!isFinite(mean) || hi - lo < 0.04) return null;
@@ -1912,7 +1985,6 @@ function estimateStrouhal(){
       last = k;
       crossings++;
     }
-
     prev = cur;
   }
 
@@ -1985,7 +2057,6 @@ function updateKinematics() {
   let needsRebuild = false;
   let isPitching = false;
   
-  // Transition Time Logic: 8 degrees change over t_sec (scaled to 60fps)
   const pitchTimeEl = document.getElementById('pitchTime');
   const t_sec = parseFloat(pitchTimeEl.value) || 0.6;
   const pitchRate = (8 / Math.max(0.1, t_sec)) / 60; 
@@ -2000,6 +2071,7 @@ function updateKinematics() {
   } else if (aoa !== targetAoa) {
     aoa = targetAoa;
     needsRebuild = true;
+    isPitching = true; // Still "pitching" on the snap frame so it doesn't hard-reset graph averages
   }
 
   // Flap Angle Pitch
@@ -2011,6 +2083,7 @@ function updateKinematics() {
   } else if (flapAngle !== targetFlapAngle) {
     flapAngle = targetFlapAngle;
     needsRebuild = true;
+    isPitching = true;
   }
 
   // Slat Angle Pitch
@@ -2022,6 +2095,7 @@ function updateKinematics() {
   } else if (slatAngle !== targetSlatAngle) {
     slatAngle = targetSlatAngle;
     needsRebuild = true;
+    isPitching = true;
   }
 
   if (!isPitching) currentOmega = 0;
@@ -2029,7 +2103,6 @@ function updateKinematics() {
   liveAoaTag.textContent = 'α live ' + aoa.toFixed(1) + '°';
 
   if (needsRebuild) {
-    touched();
     rebuildBody(true, isPitching);
     if (isPitching) drawPolarLive();
     updateHint();
@@ -2044,7 +2117,7 @@ function frame(now){
 
   fps = fps*0.92 + (1000/Math.max(dt,1))*0.08;
 
-    // Auto-adjust solver work per frame to balance smoothness and performance.
+  // Auto-adjust solver work per frame to balance smoothness and performance.
   if (dt > 34 && stepsPerFrame > qMin) stepsPerFrame--;
   else if (dt < 18 && stepsPerFrame < qMax) stepsPerFrame++;
 
@@ -2072,11 +2145,8 @@ function frame(now){
       initFluid();
       initParticles();
       smokeCx.clearRect(0, 0, W, H);
-
-      smCl = 0;
-      smCd = 0;
-      smFluct = 0;
-      clearHist();
+      
+      resetGraphsAndAverages(); // Clear memory to stop NaNs from poisoning Canvas
 
       hint.textContent = 'flow reset — try higher viscosity or lower speed';
       clearTimeout(hintT);
@@ -2084,22 +2154,49 @@ function frame(now){
     }
 
     if (forceSamples > 0 && barList.length){
-      // For multi-element foils, reference length remains the main chord.
+      // 1. Calculate Dimensionless Coefficients (LBM Scale)
       const Lforce = bodyType === 'cyl' ? 2*ydim*0.11 : chord;
-      // Non-dimensionalise forces into approximate CL and CD values.
-      const q = 0.5*u0*u0*Lforce;
-
+      const q = 0.5 * u0 * u0 * Lforce;
       const cl = (-Fy/forceSamples)/q;
       const cd = ( Fx/forceSamples)/q;
 
+      // 2. Physical Constants (At 1 atm, 20°C)
+      const rho_real = 1.204; // kg/m^3
+      
+      // 3. Define the physical size and speed of your test
+      const V_real = velocityMS; // m/s, controlled by the main wind-speed slider
+      const Chord_real = 1.0; // Assumed 1 meter physical chord length
+      const Span_real = 1.0;  // Assumed 1 meter wing span (2D extrusion)
+      const Area_real = Chord_real * Span_real; 
+
+      // 4. Calculate Real-World Forces (Newtons)
+      const q_real = 0.5 * rho_real * (V_real * V_real);
+      const Lift_Newtons = cl * q_real * Area_real;
+      const Drag_Newtons = cd * q_real * Area_real;
+
+      // 5. Update the UI explicitly for Physical Forces
+      const liftEl = document.getElementById('liveLiftN');
+      const dragEl = document.getElementById('liveDragN');
+      if(liftEl) liftEl.textContent = Lift_Newtons.toFixed(1);
+      if(dragEl) dragEl.textContent = Drag_Newtons.toFixed(1);
+
+      // 6. Light Smoothing (For the live HUD numbers and Time Graph)
       smCl = smCl*0.95 + cl*0.05;
       smCd = smCd*0.95 + cd*0.05;
 
-      pushHist(cl, cd);
+      // 7. Heavy Smoothing (Kills the noise for the Polar Graph curve)
+      longSmCl = (longSmCl === 0) ? cl : longSmCl*0.99 + cl*0.01;
+      longSmCd = (longSmCd === 0) ? cd : longSmCd*0.99 + cd*0.01;
+
+      pushHist(smCl, smCd);
+      
+      // Save data to the persistent plot every few frames to save memory
+      if (frameCount % 3 === 0) {
+        pushPolar(aoa, longSmCl, longSmCd);
+      }
+      
       clearForces();
     }
-
-    recordPolarSample();
 
     if (frameCount % 2 === 0) drawTime();
     if (frameCount % 6 === 0){
@@ -2137,7 +2234,7 @@ function frame(now){
 
 /* ================= CONTROLS ================= */
 // UI controls update the solver state immediately.
-const aoaEl = document.getElementById('aoa'), aoavEl = document.getElementById('aoav');
+const aoaEl = document.getElementById('aoa'), aoaInput = document.getElementById('aoaInput');
 const flapAoaEl = document.getElementById('flapAoa'), flapAoavEl = document.getElementById('flapAoav');
 const slatAoaEl = document.getElementById('slatAoa'), slatAoavEl = document.getElementById('slatAoav');
 
@@ -2155,15 +2252,13 @@ pitchTimeEl.addEventListener('input', () => {
 document.getElementById('btnPitchMinus').addEventListener('click', () => {
   targetAoa = Math.max(-45, targetAoa - 8);
   aoaEl.value = targetAoa;
-  touched();
-  aoavEl.textContent = targetAoa.toFixed(1) + '°';
+  aoaInput.value = targetAoa.toFixed(1);
 });
 
 document.getElementById('btnPitchPlus').addEventListener('click', () => {
   targetAoa = Math.min(45, targetAoa + 8);
   aoaEl.value = targetAoa;
-  touched();
-  aoavEl.textContent = targetAoa.toFixed(1) + '°';
+  aoaInput.value = targetAoa.toFixed(1);
 });
 
 document.getElementById('btnPitchSnap').addEventListener('click', () => {
@@ -2171,7 +2266,6 @@ document.getElementById('btnPitchSnap').addEventListener('click', () => {
   currentOmega = 0;
   rebuildBody(true, false);
   updateHint();
-  touched();
   liveAoaTag.textContent = 'α live ' + aoa.toFixed(1) + '°';
 });
 
@@ -2182,9 +2276,36 @@ function clearUPresets(){
   });
 }
 
+// Sync exact input box to main slider, with alert and clamp constraints
+aoaInput.addEventListener('change', () => {
+  let val = parseFloat(aoaInput.value);
+  if (isNaN(val)) {
+    aoaInput.value = targetAoa.toFixed(1);
+    return;
+  }
+  
+  if (val < -45 || val > 45) {
+    alert("Error: Angle of Attack must be between -45° and 45°.");
+    val = Math.min(45, Math.max(-45, val));
+    aoaInput.value = val.toFixed(1);
+  }
+  
+  targetAoa = val;
+  aoaEl.value = targetAoa;
+  recomputeVisc();
+});
+
+// Trigger change event when Enter is pressed
+aoaInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    aoaInput.blur();
+  }
+});
+
+// Sync main slider to exact input box
 aoaEl.addEventListener('input', () => {
   targetAoa = parseFloat(aoaEl.value);
-  aoavEl.textContent = targetAoa.toFixed(1) + '°';
+  aoaInput.value = targetAoa.toFixed(1);
   recomputeVisc();
 });
 
@@ -2198,37 +2319,41 @@ slatAoaEl.addEventListener('input', () => {
   slatAoavEl.textContent = targetSlatAngle.toFixed(1) + '°';
 });
 
-spdEl.addEventListener('input', () => {
-  u0 = parseFloat(spdEl.value);
-  spdvEl.textContent = speedLabel(u0);
+function updateSpeedFromMs(v_ms, {reset = true, clearPreset = true} = {}){
+  velocityMS = Math.min(parseFloat(spdEl.max), Math.max(parseFloat(spdEl.min), v_ms));
+  u0 = msToLu(velocityMS);
+  spdEl.value = Math.round(velocityMS);
+  spdvEl.textContent = speedLabelMs(velocityMS);
 
-  clearUPresets();
+  const liveLu = document.getElementById('liveLu');
+  if (liveLu) liveLu.textContent = u0.toFixed(3);
+
+  if (clearPreset) clearUPresets();
   recomputeVisc();
   drawColorbar();
-  clearPolar();
+  if (reset) resetGraphsAndAverages();
+}
+
+spdEl.addEventListener('input', () => {
+  updateSpeedFromMs(parseFloat(spdEl.value), {clearPreset: true});
 });
 
-// Presets are just handy points on the same lattice-unit scale as the slider.
+// Presets are m/s values. They map back to u0, so the LBM physics stays unchanged.
 document.getElementById('uPresets').addEventListener('click', e => {
   const b = e.target.closest('.chip');
-  if (!b || !b.dataset.u) return;
+  if (!b || !b.dataset.ms) return;
 
-  u0 = parseFloat(b.dataset.u);
-  spdEl.value = u0;
-  spdvEl.textContent = speedLabel(u0);
+  updateSpeedFromMs(parseFloat(b.dataset.ms), {clearPreset: false});
 
   document.querySelectorAll('#uPresets .chip').forEach(c => {
     const on = c === b;
     c.classList.toggle('on', on);
     c.setAttribute('aria-pressed', on);
   });
-
-  recomputeVisc();
-  drawColorbar();
-  clearPolar();
 });
 
 // Apply the user viscosity plus a safety floor for difficult flow cases.
+// Restored the original scaling so high AoA increases viscosity, preventing the drop in Cl.
 function recomputeVisc(){
   const A = isWing() ? Math.abs(aoa) : (bodyType === 'cyl' ? 30 : 0);
   const bodyK = (bodyType === 'cyl' || bodyType === 'plate') ? 1.2 : 1.0;
@@ -2264,7 +2389,7 @@ function setVisc(){
 
 viscEl.addEventListener('input', () => {
   setVisc();
-  clearPolar();
+  resetGraphsAndAverages();
 
   document.querySelectorAll('#fluids .chip').forEach(c => {
     c.classList.remove('on');
@@ -2285,18 +2410,16 @@ document.getElementById('fluids').addEventListener('click', e => {
   });
 
   setVisc();
-  clearPolar();
+  resetGraphsAndAverages();
 });
 
 const smkEl = document.getElementById('smk'), smkvEl = document.getElementById('smkv');
 
 smkEl.addEventListener('input', () => {
   const n = parseInt(smkEl.value);
-
   if (n > NP){
     for (let k = NP; k < n; k++) seedParticle(k);
   }
-
   NP = n;
   smkvEl.textContent = NP + ' tracers';
 });
@@ -2331,7 +2454,7 @@ function applyCustomNaca(){
 
   rebuildBody(true);
   recomputeVisc();
-  clearPolar();
+  resetGraphsAndAverages();
   updateHint();
 }
 
@@ -2364,7 +2487,7 @@ document.getElementById('bodies').addEventListener('click', e => {
 
   rebuildBody(true);
   recomputeVisc();
-  clearPolar();
+  resetGraphsAndAverages();
   updateHint();
 });
 
@@ -2382,7 +2505,7 @@ document.getElementById('configs').addEventListener('click', e => {
 
   rebuildBody(true);
   recomputeVisc();
-  clearPolar();
+  resetGraphsAndAverages();
   updateHint();
 });
 
@@ -2415,7 +2538,6 @@ function setView(mode, btn){
     b.classList.toggle('on', b === btn);
     b.setAttribute('aria-pressed', b === btn);
   }
-
   drawColorbar();
 }
 
@@ -2466,11 +2588,7 @@ document.getElementById('btnReset').addEventListener('click', () => {
   initFluid();
   initParticles();
   smokeCx.clearRect(0, 0, W, H);
-
-  smCl = 0;
-  smCd = 0;
-
-  clearHist();
+  resetGraphsAndAverages(); // Explicit clear
 });
 
 /* ================= EXPORT ================= */
@@ -2497,17 +2615,17 @@ function downloadBlob(name, type, content){
 // CSV export writes the collected lift/drag curve data.
 function exportLiftCurveCsv(){
   const rows = [['aoa_deg','cl','cd','ld','body','u0_lattice','nu_effective','timestamp_iso']];
-  const pts = [...polarData.entries()].sort((a,b) => a[0] - b[0]);
+  const pts = [...pHist];
 
-  if (!pts.length && barList.length) pts.push([aoa, {cl:smCl, cd:smCd}]);
+  if (!pts.length && barList.length) pts.push({a: aoa, cl: longSmCl, cd: longSmCd});
 
   const ts = new Date().toISOString();
 
-  for (const [a, v] of pts){
+  for (const v of pts){
     const ld = Math.abs(v.cd) > 1e-6 ? v.cl / v.cd : '';
 
     rows.push([
-      a.toFixed(1),
+      v.a.toFixed(1),
       v.cl.toFixed(6),
       v.cd.toFixed(6),
       ld === '' ? '' : ld.toFixed(6),
@@ -2590,6 +2708,7 @@ document.getElementById('btnCsv').addEventListener('click', exportLiftCurveCsv);
 /* ================= POINTER INPUT ================= */
 // Clicking or dragging injects extra smoke near the pointer.
 let puffing = false;
+let pointerEvent = null;
 const stageEl = document.getElementById('stage');
 
 function puffAt(e, count){
@@ -2603,21 +2722,26 @@ function puffAt(e, count){
   }
 }
 
+function continuousPuff() {
+  if (puffing && pointerEvent) {
+    puffAt(pointerEvent, 16);
+    requestAnimationFrame(continuousPuff);
+  }
+}
+
 stageEl.addEventListener('pointerdown', e => {
   puffing = true;
-
-  try{
-    stageEl.setPointerCapture(e.pointerId);
-  }catch(_){}
-
+  pointerEvent = e;
+  try{ stageEl.setPointerCapture(e.pointerId); }catch(_){}
   puffAt(e, 120);
+  requestAnimationFrame(continuousPuff);
 });
 
 stageEl.addEventListener('pointermove', e => {
-  if (puffing) puffAt(e, 16);
+  if (puffing) pointerEvent = e;
 });
-stageEl.addEventListener('pointerup', () => { puffing = false; });
-stageEl.addEventListener('pointercancel', () => { puffing = false; });
+stageEl.addEventListener('pointerup', () => { puffing = false; pointerEvent = null; });
+stageEl.addEventListener('pointercancel', () => { puffing = false; pointerEvent = null; });
 
 /* ================= KEYBOARD ================= */
 // Keyboard shortcuts mirror the main controls for faster testing.
@@ -2648,9 +2772,7 @@ window.addEventListener('keydown', e => {
   }
   else if (k === 'ArrowLeft' || k === 'ArrowRight'){
     e.preventDefault();
-
     const d = (k === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 5 : .5);
-
     aoaEl.value = Math.min(45, Math.max(-45, parseFloat(aoaEl.value) + d));
     aoaEl.dispatchEvent(new Event('input'));
   }
@@ -2658,8 +2780,8 @@ window.addEventListener('keydown', e => {
 
 /* ================= START ================= */
 // Initial UI sync, solver setup, and animation start.
-aoavEl.textContent = targetAoa.toFixed(1) + '°';
-spdvEl.textContent = speedLabel(u0);
+aoaInput.value = targetAoa.toFixed(1);
+updateSpeedFromMs(velocityMS, {reset: false, clearPreset: false});
 
 setVisc();
 updateConfigVisibility();
@@ -2679,26 +2801,6 @@ drawTime();
 drawColorbar();
 
 requestAnimationFrame(frame);
-/* ===== LIVE lu → m/s CONVERTER ===== */
-(() => {
-  const vref   = document.getElementById('vref');
-  const liveLu = document.getElementById('liveLu');
-  const liveMs = document.getElementById('liveMs');
-  const U_REF  = 0.10;                     // the reference u0 that V_ref represents
-
-  function refresh(){
-    const V = parseFloat(vref.value) || 0;
-    const ms = u0 * (V / U_REF);           // v = u0 × (V_ref / u0_ref)
-    liveLu.textContent = u0.toFixed(3);
-    liveMs.textContent = ms.toFixed(1);
-  }
-
-  vref.addEventListener('input', refresh);
-  setInterval(refresh, 120);              // keeps up with slider / presets / keys
-  refresh();
-})();
 </script>
-  <script data-goatcounter="https://sarujan.goatcounter.com/count"
-        async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
