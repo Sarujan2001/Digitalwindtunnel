@@ -486,10 +486,12 @@ footer b{color:#9fb2d2;font-weight:500}
     <span class="plabel">Test body</span>
     <div class="chips" id="bodies" role="group" aria-label="Test body selection">
       <button type="button" class="chip on" data-b="n0012" aria-pressed="true">NACA 0012</button>
+      <button type="button" class="chip" data-b="f1wing" aria-pressed="false">F1 REAR WING</button>
       <button type="button" class="chip" data-b="n2412" aria-pressed="false">NACA 2412</button>
       <button type="button" class="chip" data-b="n4415" aria-pressed="false">NACA 4415</button>
       <button type="button" class="chip" data-b="plate" aria-pressed="false">FLAT PLATE</button>
       <button type="button" class="chip" data-b="cyl" aria-pressed="false">CYLINDER</button>
+      
       <button type="button" class="chip" data-b="none" aria-pressed="false">EMPTY</button>
       <input id="nacaIn" maxlength="4" inputmode="numeric" placeholder="NACA ····" aria-label="Custom 4-digit NACA code">
       <button type="button" class="chip" id="nacaGo" aria-pressed="false">APPLY</button>
@@ -506,6 +508,15 @@ footer b{color:#9fb2d2;font-weight:500}
       <button type="button" class="chip" data-c="highlift" aria-pressed="false">SLAT + FLAP</button>
     </div>
   </div>
+
+  <!-- F1 DRS Row -->
+<div class="prow hidden" id="rowF1">
+  <span class="plabel">F1 DRS</span>
+  <div class="chips">
+    <button type="button" class="chip" id="btnDrs">DRS: CLOSED</button>
+    <button type="button" class="chip" id="btnDrsMode">METHOD: NORMAL</button>
+  </div>
+</div>
 
   <!-- Angle of attack and inlet speed directly affect the flow and force estimates. -->
   <div class="prow">
@@ -818,7 +829,7 @@ for (let y = 0; y < ydim; y++){
     const dr = x - (xdim - 1 - SPONGE_R);          // distance into right layer
     if (dr > 0){ const t = dr/SPONGE_R;  s = Math.max(s, t*t*SPONGE_MAX_R); }
 
-    const dl = SPONGE_L - x;                        // distance into left layer
+    const dl = SPONGE_L - x;                       // distance into left layer
     if (dl > 0){ const t = dl/SPONGE_L;  s = Math.max(s, t*t*SPONGE_MAX_L); }
 
     const dtb = Math.max(SPONGE_TB - y, SPONGE_TB - (ydim - 1 - y));
@@ -1116,16 +1127,63 @@ let aoa = 6, targetAoa = 6;
 let flapAngle = 20, targetFlapAngle = 20;
 let slatAngle = -20, targetSlatAngle = -20;
 
+let drsOpen = false;
+
+// 'normal' = normal traditional DRS
+// 'pivot180' = flap rotates 180° from the closed starting angle
+let f1DrsMode = 'normal';
+
+const DRS_CLOSED_ANGLE = -48;
+const DRS_NORMAL_OPEN_ANGLE = 2;
+
+// Ferrari-style open angle. Tune this value if you want a stronger/weaker flip.
+const DRS_180_OPEN_ANGLE = DRS_CLOSED_ANGLE + 230;
+
+let currentDrsAngle = DRS_CLOSED_ANGLE;
+let targetDrsAngle = DRS_CLOSED_ANGLE;
+// DRS uses its own transition time, independent from the AOA transition slider.
+const DRS_TRANSITION_TIME = 0.4; // seconds
+
+let drsStartAngle = DRS_CLOSED_ANGLE;
+let drsStartTime = 0;
+let drsMoving = false;
+
+function startDrsTransition(){
+  drsStartAngle = currentDrsAngle;
+  drsStartTime = performance.now();
+  drsMoving = true;
+}
+
+function getDrsTargetAngle(){
+  if (!drsOpen) return DRS_CLOSED_ANGLE;
+
+  return f1DrsMode === 'pivot180'
+    ? DRS_180_OPEN_ANGLE
+    : DRS_NORMAL_OPEN_ANGLE;
+}
+
 let customP = {m:0.02, p:0.4, t:0.12, code:'2412'};
 
 // Preset and custom NACA parameters: max camber, camber location, thickness.
 function nacaParams(t){
   if (t === 'custom') return customP;
   return {
-    n0012:{m:0.00,p:0.4,t:0.12},
-    n2412:{m:0.02,p:0.4,t:0.12},
-    n4415:{m:0.04,p:0.4,t:0.15},
-    plate:{m:0.00,p:0.4,t:0.024}
+    n0012:{m:0.00, p:0.4, t:0.12},
+    n2412:{m:0.02, p:0.4, t:0.12},
+    n4415:{m:0.04, p:0.4, t:0.15},
+    plate:{m:0.00, p:0.4, t:0.024},
+    // F1 profiles matching the new, thicker CFD reference
+    f1main: {
+    m: -0.10,
+    p: 0.50,
+    t: 0.16
+  },
+
+  f1flap: {
+    m: -0.06,
+    p: 0.43,
+    t: 0.09
+  }  // Thicker flap to match the trailing contour
   }[t];
 }
 
@@ -1151,6 +1209,67 @@ function getSceneFoils() {
   const foils = [];
   if (bodyType === 'none' || bodyType === 'cyl') {
     foils.push({ type: bodyType, cx, cy, chord, a: aoa * Math.PI/180, isMain: true });
+    return foils;
+  }
+
+  // F1 Drag Reduction System (DRS) & Spec Setup
+  if (bodyType === 'f1wing') {
+    const a = aoa * Math.PI/180;
+    const ca = Math.cos(a), sa = Math.sin(a);
+
+    // Pitch the main plane to match the steep orientation in the new image
+    const mainPitch =-20;
+    const mainAoa = a + mainPitch * Math.PI/180; 
+    
+    // Main Plane (Using the new thick f1main profile)
+    const mx = cx - chord * 0.12;
+    const my = cy + chord * 0.08;
+    foils.push({ type: 'f1main', cx: mx, cy: my, chord: chord * 0.85, a: mainAoa, isMain: true });
+
+    // Closed-position centre of the DRS flap
+const dx = chord * 0.5;
+const dy = chord * -0.28;
+
+const baseFcx = mx + dx * ca - dy * sa;
+const baseFcy = my + dx * sa + dy * ca;
+
+const flapChord = chord * 0.44;
+
+// Closed angle and current animated DRS angle
+const closedA = a + DRS_CLOSED_ANGLE * Math.PI / 180;
+const flapA = a + currentDrsAngle * Math.PI / 180;
+
+/*
+  Different pivot points for each DRS method:
+
+  NORMAL:
+  - pivots at the trailing edge of the DRS flap
+
+  180 PIVOT / Ferrari-style:
+  - pivots around the middle of the DRS flap
+*/
+const hingeOffset = f1DrsMode === 'normal'
+  ? 0.60 * flapChord   // trailing edge pivot
+  : 0.2 * flapChord;  // middle pivot
+
+// Fixed hinge position based on the closed flap position
+const hingeX = baseFcx + Math.cos(closedA) * hingeOffset;
+const hingeY = baseFcy + Math.sin(closedA) * hingeOffset;
+
+// Move the flap centre around the chosen hinge
+const fcx = hingeX - Math.cos(flapA) * hingeOffset;
+const fcy = hingeY - Math.sin(flapA) * hingeOffset;
+
+// Add the DRS flap
+foils.push({
+  type: 'f1flap',
+  cx: fcx,
+  cy: fcy,
+  chord: flapChord,
+  a: flapA,
+  isMain: false
+});
+    
     return foils;
   }
 
@@ -1596,14 +1715,19 @@ function drawBody(){
   bodyCx.shadowBlur = 22*DPR;
 
   const grad = bodyCx.createLinearGradient(0, cy*sy - 40*DPR, 0, cy*sy + 40*DPR);
+
+if (bodyType === 'f1wing') {
+  bodyCx.fillStyle = '#080b12';
+  bodyCx.strokeStyle = 'rgba(120,140,170,0.65)';
+} else {
+  const grad = bodyCx.createLinearGradient(0, cy*sy - 40*DPR, 0, cy*sy + 40*DPR);
   grad.addColorStop(0, '#48506a');
-  grad.addColorStop(.45, '#1a1f2e');
+  grad.addColorStop(0.45, '#1a1f2e');
   grad.addColorStop(1, '#0a0d16');
 
   bodyCx.fillStyle = grad;
   bodyCx.strokeStyle = 'rgba(175,198,230,0.75)';
-  bodyCx.lineWidth = 3.2*DPR;
-  bodyCx.lineJoin = 'round';
+}
   
   const foils = getSceneFoils();
   const mainWing = foils.find(f => f.isMain);
@@ -2020,6 +2144,13 @@ function isWing(){
 }
 
 function bodyName(){
+  if (bodyType === 'f1wing') {
+    const drsState = drsOpen ? 'DRS OPEN' : 'DRS CLOSED';
+    const modeName = f1DrsMode === 'pivot180' ? '180 PIVOT' : 'NORMAL DRS';
+
+    return 'F1 REAR WING · ' + drsState + ' · ' + modeName;
+  }
+
   const base = {
     n0012:'NACA 0012',
     n2412:'NACA 2412',
@@ -2094,6 +2225,27 @@ function updateKinematics() {
     isPitching = true;
   } else if (slatAngle !== targetSlatAngle) {
     slatAngle = targetSlatAngle;
+    needsRebuild = true;
+    isPitching = true;
+  }
+
+  // F1 DRS Flap Pitch
+  // DRS uses DRS_TRANSITION_TIME.
+  // It still animates smoothly, but it does not use the user-selected AOA transition time.
+  if (drsMoving) {
+    const elapsed = (performance.now() - drsStartTime) / 1000;
+    const t = Math.min(1, elapsed / DRS_TRANSITION_TIME);
+
+    // Smooth but fast movement: avoids a harsh snap.
+    const smoothT = t * t * (3 - 2 * t);
+
+    currentDrsAngle = drsStartAngle + (targetDrsAngle - drsStartAngle) * smoothT;
+
+    if (t >= 1) {
+      currentDrsAngle = targetDrsAngle;
+      drsMoving = false;
+    }
+
     needsRebuild = true;
     isPitching = true;
   }
@@ -2243,6 +2395,25 @@ const viscEl = document.getElementById('visc'), viscvEl = document.getElementByI
 
 const pitchTimeEl = document.getElementById('pitchTime');
 const pitchTimeVEl = document.getElementById('pitchTimeV');
+
+const rowConfig = document.getElementById('rowConfig');
+const rowF1 = document.getElementById('rowF1');
+const rowFlap = document.getElementById('rowFlap');
+const rowSlat = document.getElementById('rowSlat');
+const rowPitch = document.getElementById('rowPitch');
+const btnPitchMinus = document.getElementById('btnPitchMinus');
+const btnPitchPlus = document.getElementById('btnPitchPlus');
+const btnPitchSnap = document.getElementById('btnPitchSnap');
+
+function setAoaTransitionEnabled(enabled){
+  rowPitch.style.opacity = enabled ? '1' : '0.35';
+  rowPitch.style.pointerEvents = enabled ? 'auto' : 'none';
+
+  pitchTimeEl.disabled = !enabled;
+  btnPitchMinus.disabled = !enabled;
+  btnPitchPlus.disabled = !enabled;
+  btnPitchSnap.disabled = !enabled;
+}
 
 // Pitch Transition Controls
 pitchTimeEl.addEventListener('input', () => {
@@ -2473,16 +2644,55 @@ document.getElementById('bodies').addEventListener('click', e => {
 
   bodyType = b.dataset.b;
 
-  // Multi-element only applies to foils, hide config if plate/cyl/none
-  const configRow = document.getElementById('rowConfig');
-  if (!isWing() || bodyType === 'plate') {
-    configRow.classList.add('hidden');
-    document.getElementById('rowFlap').classList.add('hidden');
-    document.getElementById('rowSlat').classList.add('hidden');
+  // Toggle Visibility for F1 vs Regular Wings
+  if (bodyType === 'f1wing') {
+    rowConfig.classList.add('hidden');
+    rowF1.classList.remove('hidden');
+    rowFlap.classList.add('hidden');
+    rowSlat.classList.add('hidden');
+    
+    // 🔒 LOCK AOA TO 4 DEGREES
+    aoa = 4;
+    targetAoa = 4;
+    currentOmega = 0;
+    aoaEl.value = 4;
+    aoaInput.value = "4.0";
+    
+    // Disable and dim the Target α slider and text input
+    aoaEl.disabled = true;
+    aoaInput.disabled = true;
+    aoaEl.style.opacity = '0.4';
+    aoaInput.style.opacity = '0.4';
+    // F1 uses fixed DRS_TRANSITION_TIME, so AOA transition controls are disabled.
+    setAoaTransitionEnabled(false);
+    
+  } else if (!isWing() || bodyType === 'plate') {
+    rowConfig.classList.add('hidden');
+    rowF1.classList.add('hidden');
+    rowFlap.classList.add('hidden');
+    rowSlat.classList.add('hidden');
     configMode = 'single';
+    
+    // 🔓 UNLOCK AOA
+    aoaEl.disabled = false;
+    aoaInput.disabled = false;
+    aoaEl.style.opacity = '1';
+    aoaInput.style.opacity = '1';
+    
+    setAoaTransitionEnabled(true);
+    
   } else {
-    configRow.classList.remove('hidden');
+    rowConfig.classList.remove('hidden');
+    rowF1.classList.add('hidden');
     updateConfigVisibility();
+    
+    // 🔓 UNLOCK AOA
+    aoaEl.disabled = false;
+    aoaInput.disabled = false;
+    aoaEl.style.opacity = '1';
+    aoaInput.style.opacity = '1';
+    
+    setAoaTransitionEnabled(true);
   }
 
   rebuildBody(true);
@@ -2510,9 +2720,6 @@ document.getElementById('configs').addEventListener('click', e => {
 });
 
 function updateConfigVisibility() {
-  const rowFlap = document.getElementById('rowFlap');
-  const rowSlat = document.getElementById('rowSlat');
-
   if (configMode === 'single') {
     rowFlap.classList.add('hidden');
     rowSlat.classList.add('hidden');
@@ -2527,6 +2734,47 @@ function updateConfigVisibility() {
     rowSlat.classList.remove('hidden');
   }
 }
+
+// F1 DRS Events
+const btnDrs = document.getElementById('btnDrs');
+const btnDrsMode = document.getElementById('btnDrsMode');
+
+btnDrs.addEventListener('click', () => {
+  // This button only opens/closes DRS.
+  drsOpen = !drsOpen;
+
+  btnDrs.classList.toggle('on', drsOpen);
+  btnDrs.textContent = drsOpen ? 'DRS: OPEN' : 'DRS: CLOSED';
+
+  targetDrsAngle = getDrsTargetAngle();
+
+  // Animate DRS using fixed DRS_TRANSITION_TIME, not snap.
+  startDrsTransition();
+
+  rebuildBody(true, false);
+  updateHint();
+});
+
+btnDrsMode.addEventListener('click', () => {
+  // This button only changes the DRS movement method.
+  f1DrsMode = f1DrsMode === 'normal' ? 'pivot180' : 'normal';
+
+  const is180 = f1DrsMode === 'pivot180';
+
+  btnDrsMode.classList.toggle('on', is180);
+  btnDrsMode.textContent = is180
+    ? 'METHOD: Macarena Wing Style'
+    : 'METHOD: NORMAL';
+
+  // If DRS is already open, changing method moves it to the selected open position.
+  targetDrsAngle = getDrsTargetAngle();
+
+  // Animate the method change using the same fixed DRS_TRANSITION_TIME.
+  startDrsTransition();
+
+  rebuildBody(true, false);
+  updateHint();
+});
 
 const vwV = document.getElementById('vwVort'), vwS = document.getElementById('vwSpeed'),
       vwP = document.getElementById('vwPress');
@@ -2772,6 +3020,7 @@ window.addEventListener('keydown', e => {
   }
   else if (k === 'ArrowLeft' || k === 'ArrowRight'){
     e.preventDefault();
+    if (bodyType === 'f1wing') return; // <-- Safety catch to block keyboard changes on F1 wing
     const d = (k === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 5 : .5);
     aoaEl.value = Math.min(45, Math.max(-45, parseFloat(aoaEl.value) + d));
     aoaEl.dispatchEvent(new Event('input'));
