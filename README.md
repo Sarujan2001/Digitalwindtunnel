@@ -30,7 +30,7 @@ Built by **Sarujan Srikaran** ([@SarujanSrikaran](https://github.com/Sarujan2001
 
 All controls are also available as on-screen sliders and buttons, with tooltips.
 
-## The physics (short version)
+## The physics (short version).
 
 The solver is a **D2Q9 lattice-Boltzmann method** with BGK collision, stabilised at higher Reynolds numbers by a Smagorinsky-type eddy-viscosity term computed from the local non-equilibrium stress. Boundaries: velocity inlet, far-field top/bottom walls, and a zero-gradient outlet behind a viscous sponge layer that absorbs pressure waves. Aerodynamic forces come from momentum exchange on surface lattice links. Smoke tracers are advected with second-order Runge-Kutta so streaklines hug curved flow.
 
