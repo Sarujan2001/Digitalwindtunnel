@@ -414,7 +414,7 @@ kbd{
 .legend .cl{color:var(--amber)}
 .legend .cd{color:var(--cyan)}
 .legend .live{color:#e8eefa}
-#polar,#thist{
+#polar,#thist,#cpc{
   display:block;
   width:100%;
   height:auto;
@@ -701,6 +701,9 @@ footer b{color:#9fb2d2;font-weight:500}
        <div>L: <span id="liveLiftN" style="color:var(--amber)">0.0</span> N</div>
        <div>D: <span id="liveDragN" style="color:var(--cyan)">0.0</span> N</div>
     </div>
+    <p style="font-size:10px;color:rgba(140,160,190,.5);font-family:'IBM Plex Mono',monospace;margin-top:6px">
+      Air-equivalent force on a 1 m × 1 m section (fluid preset changes viscosity/Re, not this).
+    </p>
   </div>
 
   <div class="card">
@@ -2228,11 +2231,38 @@ function surfaceCp(f, sign){
   return out;
 }
 
+let cpPrev = null;   // persistent smoothed arrays, for temporal denoising
+
+// Light [1,2,1] smoothing along the chord to kill station-to-station speckle.
+function smoothCpSpatial(arr){
+  const n = arr.length, out = new Array(n);
+  for (let k = 0; k < n; k++){
+    out[k] = (k === 0 || k === n-1)
+      ? { xc: arr[k].xc, cp: arr[k].cp }
+      : { xc: arr[k].xc, cp: 0.25*arr[k-1].cp + 0.5*arr[k].cp + 0.25*arr[k+1].cp };
+  }
+  return out;
+}
+
 function computeCp(){
-  if (!isWing() || !barList.length){ cpInfo = null; return; }
+  if (!isWing() || !barList.length){ cpInfo = cpPrev = null; return; }
   const f = getSceneFoils().find(x => x.isMain);
-  if (!f || f.type === 'cyl'){ cpInfo = null; return; }
-  cpInfo = { upper: surfaceCp(f, +1), lower: surfaceCp(f, -1) };
+  if (!f || f.type === 'cyl'){ cpInfo = cpPrev = null; return; }
+
+  const up = smoothCpSpatial(surfaceCp(f, +1));
+  const lo = smoothCpSpatial(surfaceCp(f, -1));
+
+  // Temporal blend into the persistent arrays so the curve is steady, not jittery.
+  if (!cpPrev || cpPrev.upper.length !== up.length){
+    cpPrev = { upper: up, lower: lo };
+  } else {
+    const a = 0.15;   // lower = smoother / slower to respond
+    for (let k = 0; k < up.length; k++){
+      cpPrev.upper[k] = { xc: up[k].xc, cp: cpPrev.upper[k].cp*(1-a) + up[k].cp*a };
+      cpPrev.lower[k] = { xc: lo[k].xc, cp: cpPrev.lower[k].cp*(1-a) + lo[k].cp*a };
+    }
+  }
+  cpInfo = cpPrev;
 }
 
 function drawCp(){
@@ -2449,47 +2479,33 @@ function frame(now){
     }
 
     if (forceSamples > 0 && barList.length){
-      // 1. Calculate Dimensionless Coefficients (LBM Scale)
+      // 1. Dimensionless coefficients (LBM scale), raw this frame.
       const Lforce = bodyType === 'cyl' ? 2*ydim*0.11 : chord;
       const q = 0.5 * u0 * u0 * Lforce;
       const cl = (-Fy/forceSamples)/q;
       const cd = ( Fx/forceSamples)/q;
 
-      // 2. Physical density of the selected fluid (air / water / oil / honey / glycerin)
-      const rho_real = fluidRho; // kg/m^3, set by the viscosity/fluid preset
-      
-      // 3. Define the physical size and speed of your test
-      const V_real = velocityMS; // m/s, controlled by the main wind-speed slider
-      const Chord_real = 1.0; // Assumed 1 meter physical chord length
-      const Span_real = 1.0;  // Assumed 1 meter wing span (2D extrusion)
-      const Area_real = Chord_real * Span_real; 
-
-      // 4. Calculate Real-World Forces (Newtons)
-      const q_real = 0.5 * rho_real * (V_real * V_real);
-      const Lift_Newtons = cl * q_real * Area_real;
-      const Drag_Newtons = cd * q_real * Area_real;
-
-      // 5. Update the UI explicitly for Physical Forces
-      const liftEl = document.getElementById('liveLiftN');
-      const dragEl = document.getElementById('liveDragN');
-      if(liftEl) liftEl.textContent = Lift_Newtons.toFixed(1);
-      if(dragEl) dragEl.textContent = Drag_Newtons.toFixed(1);
-
-      // 6. Light Smoothing (For the live HUD numbers and Time Graph)
+      // 2. Smooth the coefficients first, then derive everything (HUD, graphs and
+      //    the Newton readout) from the smoothed values so it is all denoised.
       smCl = smCl*0.95 + cl*0.05;
       smCd = smCd*0.95 + cd*0.05;
-
-      // 7. Heavy Smoothing (Kills the noise for the Polar Graph curve)
       longSmCl = (longSmCl === 0) ? cl : longSmCl*0.99 + cl*0.01;
       longSmCd = (longSmCd === 0) ? cd : longSmCd*0.99 + cd*0.01;
 
+      // 3. Real-world force estimate (Newtons) on a 1 m x 1 m section, from the
+      //    SMOOTHED coefficients. Referenced to AIR (1 atm, 20 C) regardless of the
+      //    fluid preset: the preset only changes the flow's viscosity / Reynolds
+      //    number, and scaling by e.g. water density here produced absurd 100k+ N
+      //    values. So this is an air-equivalent reading.
+      const q_real = 0.5 * 1.204 * (velocityMS * velocityMS);   // Pa (air)
+      const liftEl = document.getElementById('liveLiftN');
+      const dragEl = document.getElementById('liveDragN');
+      if (liftEl) liftEl.textContent = (smCl * q_real).toFixed(1);
+      if (dragEl) dragEl.textContent = (smCd * q_real).toFixed(1);
+
       pushHist(smCl, smCd);
-      
-      // Save data to the persistent plot every few frames to save memory
-      if (frameCount % 3 === 0) {
-        pushPolar(aoa, longSmCl, longSmCd);
-      }
-      
+      if (frameCount % 3 === 0) pushPolar(aoa, longSmCl, longSmCd);
+
       clearForces();
     }
 
@@ -2688,28 +2704,18 @@ function recomputeVisc(){
 }
 
 const fluidTag = document.getElementById('fluidTag');
-const densvEl = document.getElementById('densv');
-
-// Selected fluid name + physical density, keyed to the same viscosity-slider
-// bands used for the "like:" tag. Density feeds the real-world Newton readout so
-// that picking honey/glycerin actually scales the force (denser fluid, same Cl and
-// speed => more force), instead of always assuming air.
-function fluidProps(){
-  const s = parseInt(viscEl.value);
-  if (s < 10) return { name: 'air',       rho: 1.204 };
-  if (s < 35) return { name: 'water',     rho: 998   };
-  if (s < 62) return { name: 'olive oil', rho: 916   };
-  if (s < 88) return { name: 'honey',     rho: 1420  };
-  return             { name: 'glycerin',  rho: 1260  };
-}
-
-let fluidRho = 1.204;   // kg/m^3, tracks the selected fluid preset
 
 function updateFluidTag(){
-  const p = fluidProps();
-  fluidRho = p.rho;
-  fluidTag.textContent = (nu > nuSlider + 1e-6) ? 'like: ' + p.name + ' (floored)' : 'like: ' + p.name;
-  if (densvEl) densvEl.textContent = p.rho.toFixed(p.rho < 10 ? 3 : 0) + ' kg/m³';
+  const s = parseInt(viscEl.value);
+  let name;
+
+  if (s < 10) name = 'air';
+  else if (s < 35) name = 'water';
+  else if (s < 62) name = 'olive oil';
+  else if (s < 88) name = 'honey';
+  else name = 'glycerin';
+
+  fluidTag.textContent = (nu > nuSlider + 1e-6) ? 'like: ' + name + ' (floored)' : 'like: ' + name;
 }
 
 function setVisc(){
