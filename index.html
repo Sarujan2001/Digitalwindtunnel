@@ -642,7 +642,7 @@ footer b{color:#9fb2d2;font-weight:500}
     <div class="chart">
       <div class="polarhead">
         <span class="plabel">Lift curve — C<sub>L</sub> vs α</span>
-        <span class="legend"><span class="cl">● C<sub>L</sub></span>&nbsp;<span class="cd">● C<sub>D</sub> ×2</span>&nbsp;<span class="live">○ live</span></span>
+        <span class="legend"><span class="cl">● C<sub>L</sub></span>&nbsp;<span class="cd">● C<sub>D</sub></span>&nbsp;<span class="live">○ live</span></span>
       </div>
       <canvas id="polar" width="560" height="150"></canvas>
     </div>
@@ -653,6 +653,14 @@ footer b{color:#9fb2d2;font-weight:500}
         <span class="legend"><span class="cl">● C<sub>L</sub></span>&nbsp;<span class="cd">● C<sub>D</sub></span></span>
       </div>
       <canvas id="thist" width="560" height="150"></canvas>
+    </div>
+
+    <div class="chart">
+      <div class="polarhead">
+        <span class="plabel">Pressure — −C<sub>p</sub> vs x/c</span>
+        <span class="legend"><span class="cl">● upper</span>&nbsp;<span class="cd">● lower</span></span>
+      </div>
+      <canvas id="cpc" width="560" height="150"></canvas>
     </div>
   </div>
 </div>
@@ -678,7 +686,7 @@ footer b{color:#9fb2d2;font-weight:500}
     <h2>Physical Scale (1 atm, 20°C)</h2>
     <div class="keyrow" style="margin-top:10px">
       <span class="what" style="color:var(--dim)">Density (ρ)</span>
-      <span class="how">1.204 kg/m³</span>
+      <span class="how" id="densv">1.204 kg/m³</span>
     </div>
     <div class="keyrow">
       <span class="what" style="color:var(--dim)">Solver speed</span>
@@ -1998,7 +2006,9 @@ function drawPolar(){
     pcx.stroke();
   };
 
-  trace('cd', 'rgba(95,220,255,0.85)', 2);
+  // Cd is plotted at true scale (was x2, which clipped against the +1.8 axis top
+  // once Cd exceeded ~0.9 at high AoA and flat-topped the drag curve).
+  trace('cd', 'rgba(95,220,255,0.85)', 1);
   trace('cl', 'rgba(255,180,84,0.95)', 1);
 }
 
@@ -2015,8 +2025,8 @@ function drawPolarLive(){
     pcx.stroke(); pcx.fill();
   };
 
-  mark(longSmCd*2, 'rgba(95,220,255,0.85)');
-  mark(longSmCl,   'rgba(255,180,84,0.95)');
+  mark(longSmCd, 'rgba(95,220,255,0.85)');
+  mark(longSmCl, 'rgba(255,180,84,0.95)');
 }
 
 function drawTime(){
@@ -2166,6 +2176,99 @@ function estimateStrouhal(){
   const St = f * D / u0;
 
   return isFinite(St) && St > 0 && St < 5 ? St : null;
+}
+
+/* ================= SURFACE PRESSURE (Cp) ================= */
+/*
+  Chordwise pressure-coefficient plot, measured directly from the solver. In LBM
+  the pressure is p = rho*cs^2 = rho/3, so the surface Cp is ((rho-1)/3)/(1/2 u0^2)
+  sampled just outside each surface station. Plotted as -Cp vs x/c (suction up,
+  the aerodynamics convention), upper and lower surfaces separately — it shows the
+  suction peak, the pressure recovery and, near stall, the collapse of the peak.
+*/
+const cpCv = document.getElementById('cpc');
+cpCv.width = 560*DPR; cpCv.height = 150*DPR;
+const cpx = cpCv.getContext('2d');
+const CP_STATIONS = 50;
+let cpInfo = null;   // { upper:[{xc,cp}], lower:[{xc,cp}] }
+
+// Bilinear density sample.
+function rhoAt(x, y){
+  let x0 = x|0, y0 = y|0;
+  if (x0 < 0) x0 = 0; else if (x0 > xdim-2) x0 = xdim-2;
+  if (y0 < 0) y0 = 0; else if (y0 > ydim-2) y0 = ydim-2;
+  let tx = x-x0, ty = y-y0;
+  if (tx<0) tx=0; else if (tx>1) tx=1;
+  if (ty<0) ty=0; else if (ty>1) ty=1;
+  const i00 = x0+y0*xdim, i10 = i00+1, i01 = i00+xdim, i11 = i01+1;
+  return rho[i00]*(1-tx)*(1-ty) + rho[i10]*tx*(1-ty) + rho[i01]*(1-tx)*ty + rho[i11]*tx*ty;
+}
+
+function surfaceCp(f, sign){
+  const P = nacaParams(f.type);
+  const ca = Math.cos(f.a), sa = Math.sin(f.a);
+  const q = 0.5*u0*u0;
+  const pts = [];
+  for (let k = 0; k <= CP_STATIONS; k++){
+    const xc = 0.01 + 0.98*k/CP_STATIONS;
+    const yn = camber(xc, P.m, P.p) + sign*thickness(xc, P.t);
+    const xa = (xc-0.40)*f.chord, yd = -yn*f.chord;
+    pts.push({ xc, px: f.cx+xa*ca-yd*sa, py: f.cy+xa*sa+yd*ca });
+  }
+  const out = [];
+  for (let k = 0; k <= CP_STATIONS; k++){
+    const a = pts[Math.max(0,k-1)], b = pts[Math.min(CP_STATIONS,k+1)];
+    let tx = b.px-a.px, ty = b.py-a.py; const tl = Math.hypot(tx,ty)||1; tx/=tl; ty/=tl;
+    let nx = -ty, ny = tx;
+    if (nx*(pts[k].px-f.cx) + ny*(pts[k].py-f.cy) < 0){ nx=-nx; ny=-ny; }
+    const r = rhoAt(pts[k].px + nx*1.4, pts[k].py + ny*1.4);   // just outside the wall
+    const cp = ((r-1)/3)/q;
+    out.push({ xc: pts[k].xc, cp: isFinite(cp) ? cp : 0 });
+  }
+  return out;
+}
+
+function computeCp(){
+  if (!isWing() || !barList.length){ cpInfo = null; return; }
+  const f = getSceneFoils().find(x => x.isMain);
+  if (!f || f.type === 'cyl'){ cpInfo = null; return; }
+  cpInfo = { upper: surfaceCp(f, +1), lower: surfaceCp(f, -1) };
+}
+
+function drawCp(){
+  const PW = cpCv.width, PH = cpCv.height, mL = 40*DPR, mR = 12*DPR, mT = 10*DPR, mB = 20*DPR;
+  cpx.clearRect(0, 0, PW, PH);
+  cpx.font = `${10*DPR}px "IBM Plex Mono", monospace`;
+  cpx.fillStyle = 'rgba(107,120,143,0.8)';
+
+  const yTop = 3.0, yBot = -1.2;                 // -Cp range (suction up)
+  const X = xc  => mL + xc*(PW-mL-mR);
+  const Y = ncp => mT + (1-(ncp-yBot)/(yTop-yBot))*(PH-mT-mB);
+
+  cpx.strokeStyle = 'rgba(140,170,220,0.10)'; cpx.lineWidth = 1;
+  for (const gv of [-1, 0, 1, 2, 3]){
+    cpx.beginPath(); cpx.moveTo(mL, Y(gv)); cpx.lineTo(PW-mR, Y(gv)); cpx.stroke();
+    cpx.fillText(gv.toFixed(0), 8*DPR, Y(gv)+3*DPR);
+  }
+  for (const gx of [0, 0.25, 0.5, 0.75, 1]){
+    cpx.beginPath(); cpx.moveTo(X(gx), mT); cpx.lineTo(X(gx), PH-mB); cpx.stroke();
+    cpx.fillText(gx.toFixed(2), X(gx)-8*DPR, PH-5*DPR);
+  }
+  cpx.strokeStyle = 'rgba(140,170,220,0.28)';
+  cpx.beginPath(); cpx.moveTo(mL, Y(0)); cpx.lineTo(PW-mR, Y(0)); cpx.stroke();
+
+  if (!cpInfo){ cpx.fillText('mount an airfoil to read surface pressure', mL, PH/2); return; }
+
+  const trace = (arr, color) => {
+    cpx.strokeStyle = color; cpx.lineWidth = 1.8*DPR; cpx.beginPath();
+    for (let k = 0; k < arr.length; k++){
+      const ncp = Math.min(yTop, Math.max(yBot, -arr[k].cp));
+      k ? cpx.lineTo(X(arr[k].xc), Y(ncp)) : cpx.moveTo(X(arr[k].xc), Y(ncp));
+    }
+    cpx.stroke();
+  };
+  trace(cpInfo.upper, 'rgba(255,180,84,0.95)');   // upper (amber)
+  trace(cpInfo.lower, 'rgba(95,220,255,0.90)');   // lower (cyan)
 }
 
 /* ================= MAIN LOOP ================= */
@@ -2352,8 +2455,8 @@ function frame(now){
       const cl = (-Fy/forceSamples)/q;
       const cd = ( Fx/forceSamples)/q;
 
-      // 2. Physical Constants (At 1 atm, 20°C)
-      const rho_real = 1.204; // kg/m^3
+      // 2. Physical density of the selected fluid (air / water / oil / honey / glycerin)
+      const rho_real = fluidRho; // kg/m^3, set by the viscosity/fluid preset
       
       // 3. Define the physical size and speed of your test
       const V_real = velocityMS; // m/s, controlled by the main wind-speed slider
@@ -2394,6 +2497,10 @@ function frame(now){
     if (frameCount % 6 === 0){
       drawPolar();
       drawPolarLive();
+    }
+    if (frameCount % 4 === 0){
+      computeCp();
+      drawCp();
     }
   }
 
@@ -2581,18 +2688,28 @@ function recomputeVisc(){
 }
 
 const fluidTag = document.getElementById('fluidTag');
+const densvEl = document.getElementById('densv');
+
+// Selected fluid name + physical density, keyed to the same viscosity-slider
+// bands used for the "like:" tag. Density feeds the real-world Newton readout so
+// that picking honey/glycerin actually scales the force (denser fluid, same Cl and
+// speed => more force), instead of always assuming air.
+function fluidProps(){
+  const s = parseInt(viscEl.value);
+  if (s < 10) return { name: 'air',       rho: 1.204 };
+  if (s < 35) return { name: 'water',     rho: 998   };
+  if (s < 62) return { name: 'olive oil', rho: 916   };
+  if (s < 88) return { name: 'honey',     rho: 1420  };
+  return             { name: 'glycerin',  rho: 1260  };
+}
+
+let fluidRho = 1.204;   // kg/m^3, tracks the selected fluid preset
 
 function updateFluidTag(){
-  const s = parseInt(viscEl.value);
-  let name;
-
-  if (s < 10) name = 'air';
-  else if (s < 35) name = 'water';
-  else if (s < 62) name = 'olive oil';
-  else if (s < 88) name = 'honey';
-  else name = 'glycerin';
-
-  fluidTag.textContent = (nu > nuSlider + 1e-6) ? 'like: ' + name + ' (floored)' : 'like: ' + name;
+  const p = fluidProps();
+  fluidRho = p.rho;
+  fluidTag.textContent = (nu > nuSlider + 1e-6) ? 'like: ' + p.name + ' (floored)' : 'like: ' + p.name;
+  if (densvEl) densvEl.textContent = p.rho.toFixed(p.rho < 10 ? 3 : 0) + ' kg/m³';
 }
 
 function setVisc(){
@@ -3090,6 +3207,7 @@ initParticles();
 updateHint();
 drawPolar();
 drawTime();
+drawCp();
 drawColorbar();
 
 requestAnimationFrame(frame);
