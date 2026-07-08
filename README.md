@@ -142,18 +142,7 @@ Built by **Sarujan Srikaran**.
 
 LinkedIn: [Sarujan Srikaran](https://www.linkedin.com/in/sarujansrikaran)
 
-## License
 
-Add your preferred open-source license here.
 
-Recommended options:
-- MIT License for simple open-source sharing
-- GPLv3 if you want derivative versions to remain open-source
-- Apache-2.0 if you want a more detailed permissive license with patent protection
-
-Example:
-
-```text
-MIT License
 Copyright (c) 2026 Sarujan Srikaran
 ```
