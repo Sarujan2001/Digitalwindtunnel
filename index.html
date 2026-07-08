@@ -775,31 +775,24 @@ const U_CAP = 0.28;
 const WALL_U_CAP = 0.08;
 const RHO_MIN = 0.35, RHO_MAX = 3.0;
 
-// Viscosity floor table used to stop high-angle/high-speed cases from exploding.
-const NUF_U = [0.08, 0.10, 0.12, 0.15];
-const NUF_A = [0, 15, 25, 35, 45];
-const NUF_T = [
-  [0.004, 0.004, 0.004, 0.004, 0.004],
-  [0.004, 0.004, 0.004, 0.009, 0.009],
-  [0.004, 0.004, 0.004, 0.013, 0.013],
-  [0.004, 0.006, 0.013, 0.018, 0.035]
-];
+/*
+  Numerical-stability viscosity floor.
 
-function nuFloorRaw(u, A){
-  u = Math.min(Math.max(u, NUF_U[0]), NUF_U[NUF_U.length-1]);
-  A = Math.min(Math.max(A, 0), 45);
+  This is a function of the lattice velocity (i.e. the Mach number) ONLY — it must
+  never depend on angle of attack. The previous version raised the molecular
+  viscosity as alpha increased, which quietly changed the Reynolds number while
+  the user swept the lift curve and deliberately damped the stall drop. That made
+  the headline Cl-vs-alpha plot a curve at a moving Re with stall suppressed.
 
-  let iu = 0;
-  while (iu < NUF_U.length-2 && u > NUF_U[iu+1]) iu++;
-
-  let ia = 0;
-  while (ia < NUF_A.length-2 && A > NUF_A[ia+1]) ia++;
-
-  const tu = (u - NUF_U[iu])/(NUF_U[iu+1] - NUF_U[iu]);
-  const ta = (A - NUF_A[ia])/(NUF_A[ia+1] - NUF_A[ia]);
-
-  return (NUF_T[iu][ia]*(1-tu) + NUF_T[iu+1][ia]*tu)*(1-ta)
-       + (NUF_T[iu][ia+1]*(1-tu) + NUF_T[iu+1][ia+1]*tu)*ta;
+  Here the floor only guarantees a stable relaxation time at the current speed.
+  The genuinely difficult regions — the high-strain separated flow at high AoA —
+  are handled adaptively and locally by the Smagorinsky eddy-viscosity term in
+  collide(), which is exactly what a subgrid model is for. Re now stays fixed as
+  you pitch, and stall is allowed to develop on its own.
+*/
+function nuFloorSpeed(u){
+  const t = Math.min(1, Math.max(0, (u - U_MIN) / (U_MAX - U_MIN)));
+  return 0.004 + 0.010 * t;   // ~0.004 at low speed, ~0.014 near the top of the band
 }
 
 /*
@@ -912,7 +905,15 @@ function initFluid(){
   clearForces();
 }
 
-// Inlet is driven from the left; top and bottom are simple slip-style walls.
+// Inlet is driven from the left; top and bottom are free-slip (far-field) walls.
+//
+// Free-slip is specular reflection: only the wall-normal (vertical) component of
+// the population is reversed, the tangential (streamwise) component is preserved.
+// So NE -> SE and NW -> SW at the top, SE -> NE and SW -> NW at the bottom.
+// The earlier version reversed BOTH components (NE -> SW), which is bounce-back —
+// a NO-SLIP wall. That grew spurious boundary layers on the tunnel ceiling and
+// floor and added blockage, contradicting the "far-field" description. Specular
+// reflection lets the uniform free-stream slide past the walls untouched.
 function setBoundaries(){
   for (let y = 1; y < ydim-1; y++) setEquil(y*xdim, u0, 0, 1);
 
@@ -924,12 +925,12 @@ function setBoundaries(){
     const iB = x + (ydim-1)*xdim;
 
     nS[iT]  = nN_[iT];
-    nSE[iT] = nNW[iT];
-    nSW[iT] = nNE[iT];
+    nSE[iT] = nNE[iT];
+    nSW[iT] = nNW[iT];
 
     nN_[iB] = nS[iB];
-    nNW[iB] = nSE[iB];
-    nNE[iB] = nSW[iB];
+    nNE[iB] = nSE[iB];
+    nNW[iB] = nSW[iB];
   }
 }
 
@@ -948,6 +949,25 @@ function outlet(){
   }
 }
 
+// Counts how often the last-resort stability guards fire (diagnostic).
+let guardHits = 0;
+
+// Rebuild a blown-up cell from its valid fluid neighbours instead of stamping
+// freestream over it. This keeps the correction local and roughly conservative.
+function healCell(i){
+  let sr = 0, sux = 0, suy = 0, n = 0;
+  for (const j of [i-1, i+1, i-xdim, i+xdim]){
+    if (j < 0 || j >= N || bar[j]) continue;
+    const rj = rho[j];
+    if (isFinite(rj) && rj >= RHO_MIN && rj <= RHO_MAX &&
+        isFinite(ux[j]) && isFinite(uy[j])){
+      sr += rj; sux += ux[j]; suy += uy[j]; n++;
+    }
+  }
+  if (n) setEquil(i, sux/n, suy/n, sr/n);
+  else   setEquil(i, u0, 0, 1);   // no healthy neighbour — fall back to freestream
+}
+
 // BGK collision step with a small eddy-viscosity stabiliser.
 function collide(){
   for (let y = 1; y < ydim-1; y++){
@@ -958,8 +978,18 @@ function collide(){
 
       const r = n0[i]+nN_[i]+nS[i]+nE[i]+nW[i]+nNW[i]+nNE[i]+nSW[i]+nSE[i];
 
+      // Last-resort guards. These are NOT part of the physics — they exist only so
+      // a browser real-time solver cannot NaN-poison the whole field, and every
+      // firing is a small non-conservative correction. With the speed-based
+      // viscosity floor plus the Smagorinsky eddy term doing the real
+      // stabilisation, they should now fire vanishingly rarely; guardHits lets us
+      // confirm that. A blown-up cell has lost its information, so we rebuild it
+      // from its valid fluid neighbours (a local, roughly mass/momentum-preserving
+      // guess) rather than stamping freestream (u0,0) over it, which used to bias
+      // the flow artificially back toward attached free-stream.
       if (!isFinite(r) || r < RHO_MIN || r > RHO_MAX){
-        setEquil(i, u0, 0, 1);
+        guardHits++;
+        healCell(i);
         continue;
       }
 
@@ -967,10 +997,13 @@ function collide(){
       let vy = (nN_[i]+nNE[i]+nNW[i]-nS[i]-nSE[i]-nSW[i]) / r;
 
       if (!isFinite(vx) || !isFinite(vy)){
-        setEquil(i, u0, 0, 1);
+        guardHits++;
+        healCell(i);
         continue;
       }
 
+      // Mach guard: cap the local speed so the low-Mach LBM stays stable. Also a
+      // rare event once the viscosity floor is doing its job.
       const u2 = vx*vx + vy*vy;
       if (u2 > U_CAP*U_CAP){
         const s = U_CAP / Math.sqrt(u2);
@@ -1089,15 +1122,22 @@ function stream(){
     const d36_px_py = 0.1666667 * (uwx + uwy);
     const d36_mx_py = 0.1666667 * (-uwx + uwy);
 
-    if (!bar[i-1])      fx += 2*nE[i];
-    if (!bar[i+1])      fx -= 2*nW[i];
-    if (!bar[i-xdim])   fy += 2*nN_[i];
-    if (!bar[i+xdim])   fy -= 2*nS[i];
+    // Momentum-exchange force with the moving-wall correction included.
+    // Per boundary link the force is e_a*(2*f_a - d_a), where d_a is the same
+    // wall-motion term (d9_*/d36_*) applied to the reflected populations below.
+    // d_a is 0 whenever the body is not rotating (currentOmega == 0), so this is
+    // identical to the stationary case except during a pitch transition, where it
+    // makes the reported unsteady lift/drag consistent with the wall BC actually
+    // being enforced.
+    if (!bar[i-1])      fx += 2*nE[i]  - d9_x;
+    if (!bar[i+1])      fx -= 2*nW[i]  + d9_x;
+    if (!bar[i-xdim])   fy += 2*nN_[i] - d9_y;
+    if (!bar[i+xdim])   fy -= 2*nS[i]  + d9_y;
 
-    if (!bar[i-1-xdim]){ fx += 2*nNE[i]; fy += 2*nNE[i]; }
-    if (!bar[i+1-xdim]){ fx -= 2*nNW[i]; fy += 2*nNW[i]; }
-    if (!bar[i-1+xdim]){ fx += 2*nSE[i]; fy -= 2*nSE[i]; }
-    if (!bar[i+1+xdim]){ fx -= 2*nSW[i]; fy -= 2*nSW[i]; }
+    if (!bar[i-1-xdim]){ fx += 2*nNE[i] - d36_px_py; fy += 2*nNE[i] - d36_px_py; }
+    if (!bar[i+1-xdim]){ fx -= 2*nNW[i] - d36_mx_py; fy += 2*nNW[i] - d36_mx_py; }
+    if (!bar[i-1+xdim]){ fx += 2*nSE[i] - d36_px_my; fy -= 2*nSE[i] - d36_px_my; }
+    if (!bar[i+1+xdim]){ fx -= 2*nSW[i] - d36_mx_my; fy -= 2*nSW[i] - d36_mx_my; }
 
     if (!bar[i+1])      nE[x+1+y*xdim]      = nW[i] + d9_x;
     if (!bar[i-1])      nW[x-1+y*xdim]      = nE[i] - d9_x;
@@ -2523,12 +2563,15 @@ document.getElementById('uPresets').addEventListener('click', e => {
   });
 });
 
-// Apply the user viscosity plus a safety floor for difficult flow cases.
-// Restored the original scaling so high AoA increases viscosity, preventing the drop in Cl.
+// Apply the user viscosity plus a speed-based numerical-stability floor.
+// The floor is a function of SPEED ONLY (see nuFloorSpeed) — it is intentionally
+// independent of angle of attack so the Reynolds number stays fixed while alpha
+// is swept and stall can develop naturally. Bluff bodies get a little extra
+// (still speed-based, still alpha-independent) because their wide wakes are
+// harder on the solver.
 function recomputeVisc(){
-  const A = isWing() ? Math.abs(aoa) : (bodyType === 'cyl' ? 30 : 0);
-  const bodyK = (bodyType === 'cyl' || bodyType === 'plate') ? 1.2 : 1.0;
-  const floor = 0.004 + bodyK*1.5*(nuFloorRaw(u0, A) - 0.004);
+  const bodyK = (bodyType === 'cyl' || bodyType === 'plate') ? 1.4 : 1.0;
+  const floor = 0.004 + bodyK*(nuFloorSpeed(u0) - 0.004);
 
   nu = Math.max(nuSlider, floor);
   tauBase = 3*nu + 0.5;
