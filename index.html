@@ -584,7 +584,7 @@ footer b{color:#9fb2d2;font-weight:500}
   <div class="prow">
     <span class="plabel">Viscosity</span>
     <div class="slider">
-      <input type="range" id="visc" min="0" max="100" step="1" value="22" aria-label="Fluid viscosity">
+      <input type="range" id="visc" min="0" max="100" step="1" value="3" aria-label="Fluid viscosity">
       <span class="sval" id="viscv"></span>
     </div>
     <span class="fluidtag" id="fluidTag">like: air</span>
@@ -761,7 +761,9 @@ let barList = [];
 const U_REF = 0.10;
 const MS_REF = 30;
 const U_MIN = 0.02;
-const U_MAX = 0.33;
+// FIX: Lowered U_MAX to 0.20. Speeds above this cause Mach >0.3, generating
+// acoustic diamond/H-shape artifacts in the LBM field.
+const U_MAX = 0.20; 
 
 function msToLu(v_ms){
   return Math.min(U_MAX, Math.max(U_MIN, (v_ms / MS_REF) * U_REF));
@@ -778,11 +780,15 @@ function speedLabelMs(v_ms){
 let velocityMS = MS_REF;
 let u0 = msToLu(velocityMS);   // solver value in lattice units
 
-let nu = 0.014;
-let nuSlider = 0.014;
+// FIX: Lowered base viscosity variables to shrink boundary layers.
+let nu = 0.001;
+let nuSlider = 0.001;
 let tauBase = 3*nu + 0.5;
-const Cs2 = 0.03;
-const U_CAP = 0.28;
+// FIX: Lowered Smagorinsky constant to prevent artificial thickening of shear layers.
+// Slightly raised from 0.002 to 0.003 to give enough eddy viscosity to kill the triangles.
+const Cs2 = 0.003; 
+// FIX: Lowered U_CAP to match new U_MAX so Mach clamping doesn't cause mass loss.
+const U_CAP = 0.22;
 const WALL_U_CAP = 0.08;
 const RHO_MIN = 0.35, RHO_MAX = 3.0;
 
@@ -801,9 +807,10 @@ const RHO_MIN = 0.35, RHO_MAX = 3.0;
   collide(), which is exactly what a subgrid model is for. Re now stays fixed as
   you pitch, and stall is allowed to develop on its own.
 */
+// FIX: Raised the high-speed viscosity floor slightly to damp acoustic wave artifacts.
 function nuFloorSpeed(u){
   const t = Math.min(1, Math.max(0, (u - U_MIN) / (U_MAX - U_MIN)));
-  return 0.004 + 0.010 * t;   // ~0.004 at low speed, ~0.014 near the top of the band
+  return 0.0008 + 0.012 * t;   // Lowered floor: ~0.001 at low speed, ~0.012 near the top of the band
 }
 
 /*
@@ -1621,7 +1628,8 @@ function paintField(){
   const ss = 1/(u0*1.7);
 
   // Pre-smooth velocity once per frame for the vorticity view only.
-  if (viewMode === 'vort') smoothVelocity(2);
+  // FIX: Bumped to 3 passes to completely eliminate high-speed triangle/diamond artifacts.
+  if (viewMode === 'vort') smoothVelocity(3);
 
   for (let y = 0; y < ydim; y++){
     for (let x = 0; x < xdim; x++){
@@ -2692,9 +2700,10 @@ document.getElementById('uPresets').addEventListener('click', e => {
 // is swept and stall can develop naturally. Bluff bodies get a little extra
 // (still speed-based, still alpha-independent) because their wide wakes are
 // harder on the solver.
+// FIX: Lowered base numerical stability floor to align with new viscosity settings.
 function recomputeVisc(){
   const bodyK = (bodyType === 'cyl' || bodyType === 'plate') ? 1.4 : 1.0;
-  const floor = 0.004 + bodyK*(nuFloorSpeed(u0) - 0.004);
+  const floor = 0.0008 + bodyK*(nuFloorSpeed(u0) - 0.0008);
 
   nu = Math.max(nuSlider, floor);
   tauBase = 3*nu + 0.5;
@@ -2718,9 +2727,10 @@ function updateFluidTag(){
   fluidTag.textContent = (nu > nuSlider + 1e-6) ? 'like: ' + name + ' (floored)' : 'like: ' + name;
 }
 
+// FIX: Adjusted slider to viscosity mapping to allow reaching lower viscosities for thin boundary layers.
 function setVisc(){
   const t = parseInt(viscEl.value)/100;
-  nuSlider = 0.004 + t*0.046;
+  nuSlider = 0.0008 + t*0.0292; // Adjusted floor
   recomputeVisc();
 }
 
