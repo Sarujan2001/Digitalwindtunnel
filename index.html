@@ -761,8 +761,6 @@ let barList = [];
 const U_REF = 0.10;
 const MS_REF = 30;
 const U_MIN = 0.02;
-// FIX: Lowered U_MAX to 0.20. Speeds above this cause Mach >0.3, generating
-// acoustic diamond/H-shape artifacts in the LBM field.
 const U_MAX = 0.20; 
 
 function msToLu(v_ms){
@@ -780,55 +778,21 @@ function speedLabelMs(v_ms){
 let velocityMS = MS_REF;
 let u0 = msToLu(velocityMS);   // solver value in lattice units
 
-// FIX: Lowered base viscosity variables to shrink boundary layers.
 let nu = 0.001;
 let nuSlider = 0.001;
 let tauBase = 3*nu + 0.5;
-// FIX: Lowered Smagorinsky constant to prevent artificial thickening of shear layers.
-// Slightly raised from 0.002 to 0.003 to give enough eddy viscosity to kill the triangles.
 const Cs2 = 0.003; 
-// FIX: Lowered U_CAP to match new U_MAX so Mach clamping doesn't cause mass loss.
 const U_CAP = 0.22;
 const WALL_U_CAP = 0.08;
 const RHO_MIN = 0.35, RHO_MAX = 3.0;
 
-/*
-  Numerical-stability viscosity floor.
-
-  This is a function of the lattice velocity (i.e. the Mach number) ONLY — it must
-  never depend on angle of attack. The previous version raised the molecular
-  viscosity as alpha increased, which quietly changed the Reynolds number while
-  the user swept the lift curve and deliberately damped the stall drop. That made
-  the headline Cl-vs-alpha plot a curve at a moving Re with stall suppressed.
-
-  Here the floor only guarantees a stable relaxation time at the current speed.
-  The genuinely difficult regions — the high-strain separated flow at high AoA —
-  are handled adaptively and locally by the Smagorinsky eddy-viscosity term in
-  collide(), which is exactly what a subgrid model is for. Re now stays fixed as
-  you pitch, and stall is allowed to develop on its own.
-*/
-// FIX: Raised the high-speed viscosity floor slightly to damp acoustic wave artifacts.
 function nuFloorSpeed(u){
   const t = Math.min(1, Math.max(0, (u - U_MIN) / (U_MAX - U_MIN)));
-  return 0.0008 + 0.012 * t;   // Lowered floor: ~0.001 at low speed, ~0.012 near the top of the band
+  return 0.0008 + 0.012 * t;   
 }
 
-/*
-  Absorbing layers on all four sides of the domain.
-
-  These add extra viscosity in a thin border region so that acoustic (pressure)
-  waves are damped BEFORE they reach a boundary and reflect. LBM is weakly
-  compressible and carries sound at cs = 1/sqrt(3); near stall the body radiates
-  pressure fluctuations continuously. With perfectly reflecting walls (free-slip
-  top/bottom, hard-equilibrium inlet) that sound has nowhere to go, bounces
-  around, and forms a standing criss-cross interference pattern in the field.
-  A gentle sponge on every side lets those waves leave quietly.
-
-  The right (outlet) layer is strongest because the mean flow exits there.
-  The left/top/bottom layers are kept gentle so they damp fluctuations without
-  distorting the uniform free-stream that should pass through them.
-*/
-const SPONGE_R   = 30,  SPONGE_MAX_R  = 0.60;  // outlet
+// Expanded right sponge layer (SPONGE_R = 40) to fully absorb high-speed vortices
+const SPONGE_R   = 40,  SPONGE_MAX_R  = 0.60;  // outlet
 const SPONGE_L   = 10,  SPONGE_MAX_L  = 0.22;  // inlet
 const SPONGE_TB  = 8,   SPONGE_MAX_TB = 0.25;  // top / bottom walls
 
@@ -924,14 +888,6 @@ function initFluid(){
 }
 
 // Inlet is driven from the left; top and bottom are free-slip (far-field) walls.
-//
-// Free-slip is specular reflection: only the wall-normal (vertical) component of
-// the population is reversed, the tangential (streamwise) component is preserved.
-// So NE -> SE and NW -> SW at the top, SE -> NE and SW -> NW at the bottom.
-// The earlier version reversed BOTH components (NE -> SW), which is bounce-back —
-// a NO-SLIP wall. That grew spurious boundary layers on the tunnel ceiling and
-// floor and added blockage, contradicting the "far-field" description. Specular
-// reflection lets the uniform free-stream slide past the walls untouched.
 function setBoundaries(){
   for (let y = 1; y < ydim-1; y++) setEquil(y*xdim, u0, 0, 1);
 
@@ -942,10 +898,12 @@ function setBoundaries(){
     const iT = x;
     const iB = x + (ydim-1)*xdim;
 
+    // Top is always free-slip (specular reflection)
     nS[iT]  = nN_[iT];
     nSE[iT] = nNE[iT];
     nSW[iT] = nNW[iT];
 
+    // Bottom is free-slip (specular reflection)
     nN_[iB] = nS[iB];
     nNE[iB] = nSE[iB];
     nNW[iB] = nSW[iB];
@@ -996,15 +954,6 @@ function collide(){
 
       const r = n0[i]+nN_[i]+nS[i]+nE[i]+nW[i]+nNW[i]+nNE[i]+nSW[i]+nSE[i];
 
-      // Last-resort guards. These are NOT part of the physics — they exist only so
-      // a browser real-time solver cannot NaN-poison the whole field, and every
-      // firing is a small non-conservative correction. With the speed-based
-      // viscosity floor plus the Smagorinsky eddy term doing the real
-      // stabilisation, they should now fire vanishingly rarely; guardHits lets us
-      // confirm that. A blown-up cell has lost its information, so we rebuild it
-      // from its valid fluid neighbours (a local, roughly mass/momentum-preserving
-      // guess) rather than stamping freestream (u0,0) over it, which used to bias
-      // the flow artificially back toward attached free-stream.
       if (!isFinite(r) || r < RHO_MIN || r > RHO_MAX){
         guardHits++;
         healCell(i);
@@ -1020,8 +969,6 @@ function collide(){
         continue;
       }
 
-      // Mach guard: cap the local speed so the low-Mach LBM stays stable. Also a
-      // rare event once the viscosity floor is doing its job.
       const u2 = vx*vx + vy*vy;
       if (u2 > U_CAP*U_CAP){
         const s = U_CAP / Math.sqrt(u2);
@@ -1132,7 +1079,6 @@ function stream(){
       }
     }
 
-    // Momentum exchange factors based on moving wall boundary rules
     const d9_x = 0.6666667 * uwx;
     const d9_y = 0.6666667 * uwy;
     const d36_px_my = 0.1666667 * (uwx - uwy);
@@ -1140,13 +1086,6 @@ function stream(){
     const d36_px_py = 0.1666667 * (uwx + uwy);
     const d36_mx_py = 0.1666667 * (-uwx + uwy);
 
-    // Momentum-exchange force with the moving-wall correction included.
-    // Per boundary link the force is e_a*(2*f_a - d_a), where d_a is the same
-    // wall-motion term (d9_*/d36_*) applied to the reflected populations below.
-    // d_a is 0 whenever the body is not rotating (currentOmega == 0), so this is
-    // identical to the stationary case except during a pitch transition, where it
-    // makes the reported unsteady lift/drag consistent with the wall BC actually
-    // being enforced.
     if (!bar[i-1])      fx += 2*nE[i]  - d9_x;
     if (!bar[i+1])      fx -= 2*nW[i]  + d9_x;
     if (!bar[i-xdim])   fy += 2*nN_[i] - d9_y;
@@ -1186,20 +1125,14 @@ let flapAngle = 20, targetFlapAngle = 20;
 let slatAngle = -20, targetSlatAngle = -20;
 
 let drsOpen = false;
-
-// 'normal' = normal traditional DRS
-// 'pivot180' = flap rotates 180° from the closed starting angle
 let f1DrsMode = 'normal';
 
 const DRS_CLOSED_ANGLE = -48;
 const DRS_NORMAL_OPEN_ANGLE = 2;
-
-// Ferrari-style open angle. Tune this value if you want a stronger/weaker flip.
 const DRS_180_OPEN_ANGLE = DRS_CLOSED_ANGLE + 230;
 
 let currentDrsAngle = DRS_CLOSED_ANGLE;
 let targetDrsAngle = DRS_CLOSED_ANGLE;
-// DRS uses its own transition time, independent from the AOA transition slider.
 const DRS_TRANSITION_TIME = 0.4; // seconds
 
 let drsStartAngle = DRS_CLOSED_ANGLE;
@@ -1214,15 +1147,11 @@ function startDrsTransition(){
 
 function getDrsTargetAngle(){
   if (!drsOpen) return DRS_CLOSED_ANGLE;
-
-  return f1DrsMode === 'pivot180'
-    ? DRS_180_OPEN_ANGLE
-    : DRS_NORMAL_OPEN_ANGLE;
+  return f1DrsMode === 'pivot180' ? DRS_180_OPEN_ANGLE : DRS_NORMAL_OPEN_ANGLE;
 }
 
 let customP = {m:0.02, p:0.4, t:0.12, code:'2412'};
 
-// Preset and custom NACA parameters: max camber, camber location, thickness.
 function nacaParams(t){
   if (t === 'custom') return customP;
   return {
@@ -1230,18 +1159,8 @@ function nacaParams(t){
     n2412:{m:0.02, p:0.4, t:0.12},
     n4415:{m:0.04, p:0.4, t:0.15},
     plate:{m:0.00, p:0.4, t:0.024},
-    // F1 profiles matching the new, thicker CFD reference
-    f1main: {
-    m: -0.10,
-    p: 0.50,
-    t: 0.16
-  },
-
-  f1flap: {
-    m: -0.06,
-    p: 0.43,
-    t: 0.09
-  }  // Thicker flap to match the trailing contour
+    f1main: { m: -0.10, p: 0.50, t: 0.16 },
+    f1flap: { m: -0.06, p: 0.43, t: 0.09 }
   }[t];
 }
 
@@ -1251,8 +1170,15 @@ function camber(xc, m, p){
                 : m/((1-p)*(1-p))*((1-2*p) + 2*p*xc - xc*xc);
 }
 
+// Added Blunt Trailing Edge logic to prevent LBM instability at the sharp rear point
 function thickness(xc, t){
-  return 5*t*(0.2969*Math.sqrt(xc) - 0.1260*xc - 0.3516*xc*xc + 0.2843*xc**3 - 0.1036*xc**4);
+  if (xc > 0.999) xc = 0.999; 
+  let yt = 5*t*(0.2969*Math.sqrt(xc) - 0.1260*xc - 0.3516*xc*xc + 0.2843*xc**3 - 0.1036*xc**4);
+  // Truncate to create a blunt TE for LBM stability
+  if (xc > 0.95) {
+    yt = Math.max(yt, thickness(0.95, t) * 0.8); 
+  }
+  return yt;
 }
 
 function isSurfaceCell(x, y){
@@ -1262,7 +1188,6 @@ function isSurfaceCell(x, y){
          !bar[i+1+xdim] || !bar[i-1+xdim] || !bar[i+1-xdim] || !bar[i-1-xdim];
 }
 
-// Generate the array of bodies based on current configuration and angles
 function getSceneFoils() {
   const foils = [];
   if (bodyType === 'none' || bodyType === 'cyl') {
@@ -1270,99 +1195,52 @@ function getSceneFoils() {
     return foils;
   }
 
-  // F1 Drag Reduction System (DRS) & Spec Setup
   if (bodyType === 'f1wing') {
     const a = aoa * Math.PI/180;
     const ca = Math.cos(a), sa = Math.sin(a);
-
-    // Pitch the main plane to match the steep orientation in the new image
     const mainPitch =-20;
     const mainAoa = a + mainPitch * Math.PI/180; 
-    
-    // Main Plane (Using the new thick f1main profile)
     const mx = cx - chord * 0.12;
     const my = cy + chord * 0.08;
     foils.push({ type: 'f1main', cx: mx, cy: my, chord: chord * 0.85, a: mainAoa, isMain: true });
 
-    // Closed-position centre of the DRS flap
-const dx = chord * 0.5;
-const dy = chord * -0.28;
-
-const baseFcx = mx + dx * ca - dy * sa;
-const baseFcy = my + dx * sa + dy * ca;
-
-const flapChord = chord * 0.44;
-
-// Closed angle and current animated DRS angle
-const closedA = a + DRS_CLOSED_ANGLE * Math.PI / 180;
-const flapA = a + currentDrsAngle * Math.PI / 180;
-
-/*
-  Different pivot points for each DRS method:
-
-  NORMAL:
-  - pivots at the trailing edge of the DRS flap
-
-  180 PIVOT / Ferrari-style:
-  - pivots around the middle of the DRS flap
-*/
-const hingeOffset = f1DrsMode === 'normal'
-  ? 0.60 * flapChord   // trailing edge pivot
-  : 0.2 * flapChord;  // middle pivot
-
-// Fixed hinge position based on the closed flap position
-const hingeX = baseFcx + Math.cos(closedA) * hingeOffset;
-const hingeY = baseFcy + Math.sin(closedA) * hingeOffset;
-
-// Move the flap centre around the chosen hinge
-const fcx = hingeX - Math.cos(flapA) * hingeOffset;
-const fcy = hingeY - Math.sin(flapA) * hingeOffset;
-
-// Add the DRS flap
-foils.push({
-  type: 'f1flap',
-  cx: fcx,
-  cy: fcy,
-  chord: flapChord,
-  a: flapA,
-  isMain: false
-});
-    
+    const dx = chord * 0.5;
+    const dy = chord * -0.28;
+    const baseFcx = mx + dx * ca - dy * sa;
+    const baseFcy = my + dx * sa + dy * ca;
+    const flapChord = chord * 0.44;
+    const closedA = a + DRS_CLOSED_ANGLE * Math.PI / 180;
+    const flapA = a + currentDrsAngle * Math.PI / 180;
+    const hingeOffset = f1DrsMode === 'normal' ? 0.60 * flapChord : 0.2 * flapChord;
+    const hingeX = baseFcx + Math.cos(closedA) * hingeOffset;
+    const hingeY = baseFcy + Math.sin(closedA) * hingeOffset;
+    const fcx = hingeX - Math.cos(flapA) * hingeOffset;
+    const fcy = hingeY - Math.sin(flapA) * hingeOffset;
+    foils.push({ type: 'f1flap', cx: fcx, cy: fcy, chord: flapChord, a: flapA, isMain: false });
     return foils;
   }
 
   const a = aoa * Math.PI/180;
   const ca = Math.cos(a), sa = Math.sin(a);
-
-  // Main foil
   foils.push({ type: bodyType, cx, cy, chord, a, isMain: true });
 
-  // Trailing Edge Flap (True Fowler Track: translates back exponentially, then deflects down)
   if (configMode === 'flap' || configMode === 'highlift') {
     const flapA = a + flapAngle * Math.PI/180;
     const fDeflect = Math.max(0, flapAngle) / 40.0;
-    
-    // Curved kinematic track matching commercial aircraft mechanics
     const dx = chord * (0.42 + 0.34 * Math.sin(fDeflect * Math.PI / 2));
     const dy = chord * (0.00 + 0.14 * Math.pow(fDeflect, 1.5));
-    
     const fcx = cx + dx*ca - dy*sa;
     const fcy = cy + dx*sa + dy*ca;
     foils.push({ type: 'n4415', cx: fcx, cy: fcy, chord: chord * 0.35, a: flapA, isMain: false });
   }
 
-  // Leading Edge Slat (Arc track: slides forward and down curving under the nose profile)
   if (configMode === 'slatonly' || configMode === 'highlift') {
     const slatA = a + slatAngle * Math.PI/180;
     const sDeflect = Math.max(0, -slatAngle) / 40.0;
-    
-    // Rotational orbit path to follow the front skin profile cleanly
     const trackRadius = chord * 0.16;
-    const trackAngle = sDeflect * 0.65; // arc sweep
-    
+    const trackAngle = sDeflect * 0.65; 
     const dx = chord * -0.41 - trackRadius * Math.sin(trackAngle);
     const dy = chord * -0.01 + trackRadius * (1.0 - Math.cos(trackAngle));
-    
     const scx = cx + dx*ca - dy*sa;
     const scy = cy + dx*sa + dy*ca;
     foils.push({ type: 'n4415', cx: scx, cy: scy, chord: chord * 0.25, a: slatA, isMain: false });
@@ -1371,7 +1249,6 @@ foils.push({
   return foils;
 }
 
-// Check if a point is inside a specific foil component
 function isPointInFoil(x, y, f) {
   if (f.type === 'none') return false;
   if (f.type === 'cyl') {
@@ -1396,7 +1273,6 @@ function isPointInFoil(x, y, f) {
   return (yn >= yc - yt && yn <= yc + yt);
 }
 
-// Recreate the solid-cell mask with a dynamic Layer/Mask Priority approach
 function rebuildBody(keepFlow, isPitching = false){
   const old = bar.slice();
   bar.fill(0);
@@ -1409,14 +1285,10 @@ function rebuildBody(keepFlow, isPitching = false){
   for (let y = 2; y < ydim-2; y++){
     for (let x = 2; x < xdim-2; x++){
       const idx = x + y*xdim;
-      
-      // 1. Check top layer priority (Main wing)
       if (mainWing && isPointInFoil(x, y, mainWing)) {
         bar[idx] = 1;
         continue;
       }
-      
-      // 2. Check secondary layers (Flaps / Slats), only solidifying if they don't clip the main structure
       for (const el of elements) {
         if (isPointInFoil(x, y, el)) {
           bar[idx] = 1;
@@ -1453,15 +1325,12 @@ function rebuildBody(keepFlow, isPitching = false){
 
   if (!isPitching) {
     clearForces();
-    // Intentionally removed clearHist() and clearPolar() from here 
-    // so the graphs don't randomly wipe at the end of a pitch transition!
   }
   
   drawBody();
 }
 
 /* ================= SMOKE ================= */
-// Smoke is made from massless tracer particles advected by the velocity field.
 const NP_MAX = 6000;
 let NP = 1400;
 
@@ -1471,7 +1340,6 @@ const px = new Float32Array(NP_MAX), py = new Float32Array(NP_MAX),
 
 const vv = [0,0];
 
-// Bilinear interpolation gives a smooth velocity at particle positions.
 function velAt(x, y){
   let x0 = x|0, y0 = y|0;
   if (x0 < 0) x0 = 0; else if (x0 > xdim-2) x0 = xdim-2;
@@ -1488,7 +1356,6 @@ function velAt(x, y){
   vv[1] = uy[i00]*w00 + uy[i10]*w10 + uy[i01]*w01 + uy[i11]*w11;
 }
 
-// Place a particle at the inlet or at a user-painted burst location.
 function seedParticle(k, burstX, burstY){
   if (burstX !== undefined){
     px[k] = burstX;
@@ -1512,7 +1379,6 @@ function initParticles(){
   }
 }
 
-// Move smoke particles through the flow and recycle them when they leave/strike the body.
 function advectParticles(){
   for (let k = 0; k < NP; k++){
     const x = px[k], y = py[k];
@@ -1547,7 +1413,6 @@ function advectParticles(){
 }
 
 /* ================= RENDERING ================= */
-// DPR scaling keeps the canvases sharp on high-density screens.
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const fieldCv = document.getElementById('field'), smokeCv = document.getElementById('smoke'),
       bodyCv = document.getElementById('body');
@@ -1570,7 +1435,6 @@ const img = bufCx.createImageData(xdim, ydim);
 
 let viewMode = 'vort', smokeOn = true;
 
-// Simple CFD-style blue-green-orange-red colour map.
 function jet(t){
   if (t < 0) t = 0; else if (t > 1) t = 1;
   const r = Math.min(1, Math.max(0, 1.5 - Math.abs(4*t - 3)));
@@ -1581,21 +1445,12 @@ function jet(t){
 
 const scal = new Float32Array(N), scal2 = new Float32Array(N);
 
-// Working buffers for a lightly smoothed copy of the velocity field.
-// Vorticity is a spatial derivative of velocity, and differentiation strongly
-// amplifies the highest-frequency (grid-scale) content. At low viscosity the
-// LBM always carries some 2-cell velocity ripple; taking the raw curl and
-// scaling it hard turns that ripple into full-saturation colour, which reads as
-// a spurious criss-cross net across otherwise-uniform flow. Smoothing the
-// velocity first removes the grid-scale ripple while leaving real, spatially
-// coherent shear layers and vortices intact.
 const uxS = new Float32Array(N), uyS = new Float32Array(N),
       uxT = new Float32Array(N), uyT = new Float32Array(N);
 
 function smoothVelocity(passes){
   uxS.set(ux); uyS.set(uy);
   for (let p = 0; p < passes; p++){
-    // horizontal [1,2,1]/4
     for (let y = 1; y < ydim-1; y++){
       const row = y*xdim;
       for (let x = 1; x < xdim-1; x++){
@@ -1605,7 +1460,6 @@ function smoothVelocity(passes){
         uyT[i] = (uyS[i-1] + 2*uyS[i] + uyS[i+1]) * 0.25;
       }
     }
-    // vertical [1,2,1]/4
     for (let y = 1; y < ydim-1; y++){
       const row = y*xdim;
       for (let x = 1; x < xdim-1; x++){
@@ -1618,17 +1472,11 @@ function smoothVelocity(passes){
   }
 }
 
-// Convert the chosen scalar field into pixels, then upscale it to the visible canvas.
 function paintField(){
   const d = img.data;
-  // Display gain for vorticity. Lowered from 26 to 15 so that residual
-  // grid-scale ripple no longer saturates the colour map; genuine shear layers
-  // are strong enough to stay bold at this gain. See smoothVelocity() above.
   const vs = 15/u0;
   const ss = 1/(u0*1.7);
 
-  // Pre-smooth velocity once per frame for the vorticity view only.
-  // FIX: Bumped to 3 passes to completely eliminate high-speed triangle/diamond artifacts.
   if (viewMode === 'vort') smoothVelocity(3);
 
   for (let y = 0; y < ydim; y++){
@@ -1673,11 +1521,6 @@ function paintField(){
     }
   }
 
-  // Light separable [1,2,1] smoothing of the scalar field before upscaling.
-  // For the vorticity view the velocity was already pre-smoothed (see
-  // smoothVelocity), so two gentle passes here are enough to remove any residual
-  // grid-scale speckle without softening real flow features; the same passes
-  // also tidy the pressure and speed views.
   for (let it = 0; it < 2; it++){
     for (let y = 0; y < ydim; y++){
       const row = y*xdim;
@@ -1716,7 +1559,6 @@ function paintField(){
   fieldCx.drawImage(buf, 0, 0, W, H);
 }
 
-// Fade old smoke trails and draw the latest particle movement as streaks.
 function paintSmoke(){
   smokeCx.globalCompositeOperation = 'destination-out';
   smokeCx.fillStyle = 'rgba(0,0,0,0.10)';
@@ -1764,7 +1606,6 @@ function bodyOutline(f){
   return pts;
 }
 
-// Draw the visual body layer above the solver field.
 function drawBody(){
   bodyCx.clearRect(0, 0, W, H);
   if (bodyType === 'none') return;
@@ -1792,7 +1633,6 @@ if (bodyType === 'f1wing') {
   const mainWing = foils.find(f => f.isMain);
   const elements = foils.filter(f => !f.isMain);
 
-  // 1. Draw secondary moving elements first
   for (const f of elements) {
     bodyCx.save();
     bodyCx.beginPath();
@@ -1803,7 +1643,6 @@ if (bodyType === 'f1wing') {
     bodyCx.fill();
     bodyCx.stroke();
     
-    // Apply internal overlapping mask removal to match real wing lines
     if (mainWing && f.type !== 'cyl') {
       bodyCx.globalCompositeOperation = 'destination-out';
       bodyCx.beginPath();
@@ -1816,7 +1655,6 @@ if (bodyType === 'f1wing') {
     bodyCx.restore();
   }
 
-  // 2. Draw Main Wing directly on top layer to keep outline perfect
   if (mainWing) {
     bodyCx.beginPath();
     if (mainWing.type === 'cyl') {
@@ -1835,7 +1673,6 @@ if (bodyType === 'f1wing') {
 }
 
 /* ================= COLORBAR ================= */
-// Colourbar labels change with the active view mode.
 const cbarCv = document.getElementById('cbar');
 cbarCv.width = 104*DPR;
 cbarCv.height = 230*DPR;
@@ -1920,12 +1757,10 @@ thistCv.width = 560*DPR;
 thistCv.height = 150*DPR;
 const tcx = thistCv.getContext('2d');
 
-// --- TIME GRAPH BUFFERS (Rolling) ---
 const HN = 600;
 const hCl = new Float32Array(HN), hCd = new Float32Array(HN), hT = new Float32Array(HN);
 let hHead = 0, hCount = 0, simSteps = 0;
 
-// --- POLAR GRAPH BUFFERS (Persistent Trace) ---
 let pHist = []; 
 const MAX_PHIST = 3000; 
 let longSmCl = 0, longSmCd = 0; 
@@ -1941,7 +1776,6 @@ function clearPolar(){
   drawPolar();
 }
 
-// Master reset function to cleanly wipe state and canvases on user command
 function resetGraphsAndAverages() {
   smCl = 0; smCd = 0;
   longSmCl = 0; longSmCd = 0;
@@ -1951,7 +1785,7 @@ function resetGraphsAndAverages() {
 }
 
 function pushHist(cl, cd){
-  if (!isFinite(cl) || !isFinite(cd)) return; // Prevent NaN poison
+  if (!isFinite(cl) || !isFinite(cd)) return; 
   hCl[hHead] = cl;
   hCd[hHead] = cd;
   hT[hHead] = simSteps;
@@ -1960,7 +1794,7 @@ function pushHist(cl, cd){
 }
 
 function pushPolar(a, cl, cd) {
-  if (!isFinite(cl) || !isFinite(cd)) return; // Prevent NaN poison
+  if (!isFinite(cl) || !isFinite(cd)) return; 
   pHist.push({a, cl, cd});
   if (pHist.length > MAX_PHIST) pHist.shift();
 }
@@ -1982,7 +1816,6 @@ function drawPolar(){
 
   const vmin = -1.5, vmax = 1.8;
 
-  // Gridlines
   pcx.strokeStyle = 'rgba(140,170,220,0.10)';
   pcx.lineWidth = 1;
   for (const gv of [-1.0, -0.5, 0, 0.5, 1.0, 1.5]){
@@ -1996,14 +1829,12 @@ function drawPolar(){
     pcx.fillText(ga + '°', X - 8*DPR, PH - 5*DPR);
   }
 
-  // Zero Line
   pcx.strokeStyle = 'rgba(140,170,220,0.28)';
   const [,Y0] = polarXY(0, 0, vmin, vmax);
   pcx.beginPath(); pcx.moveTo(40*DPR, Y0); pcx.lineTo(PW-12*DPR, Y0); pcx.stroke();
 
   if (pHist.length < 2) return;
 
-  // The smoothed continuous trace
   const trace = (key, color, scale = 1) => {
     pcx.strokeStyle = color;
     pcx.lineWidth = 2.0*DPR; 
@@ -2017,8 +1848,6 @@ function drawPolar(){
     pcx.stroke();
   };
 
-  // Cd is plotted at true scale (was x2, which clipped against the +1.8 axis top
-  // once Cd exceeded ~0.9 at high AoA and flat-topped the drag curve).
   trace('cd', 'rgba(95,220,255,0.85)', 1);
   trace('cl', 'rgba(255,180,84,0.95)', 1);
 }
@@ -2110,7 +1939,6 @@ function drawTime(){
 }
 
 /* ================= STATUS ================= */
-// Flow labels are qualitative helpers, based on angle and lift fluctuation.
 const regv = document.getElementById('regv');
 let smFluct = 0;
 
@@ -2142,7 +1970,6 @@ function flowRegime(){
   return ['STABLE FLOW', 'var(--green)', false];
 }
 
-// Estimate Strouhal number from lift oscillations when the cylinder is selected.
 function estimateStrouhal(){
   if (bodyType !== 'cyl' || hCount < 180 || u0 <= 0) return null;
 
@@ -2190,20 +2017,12 @@ function estimateStrouhal(){
 }
 
 /* ================= SURFACE PRESSURE (Cp) ================= */
-/*
-  Chordwise pressure-coefficient plot, measured directly from the solver. In LBM
-  the pressure is p = rho*cs^2 = rho/3, so the surface Cp is ((rho-1)/3)/(1/2 u0^2)
-  sampled just outside each surface station. Plotted as -Cp vs x/c (suction up,
-  the aerodynamics convention), upper and lower surfaces separately — it shows the
-  suction peak, the pressure recovery and, near stall, the collapse of the peak.
-*/
 const cpCv = document.getElementById('cpc');
 cpCv.width = 560*DPR; cpCv.height = 150*DPR;
 const cpx = cpCv.getContext('2d');
 const CP_STATIONS = 50;
-let cpInfo = null;   // { upper:[{xc,cp}], lower:[{xc,cp}] }
+let cpInfo = null;   
 
-// Bilinear density sample.
 function rhoAt(x, y){
   let x0 = x|0, y0 = y|0;
   if (x0 < 0) x0 = 0; else if (x0 > xdim-2) x0 = xdim-2;
@@ -2232,16 +2051,15 @@ function surfaceCp(f, sign){
     let tx = b.px-a.px, ty = b.py-a.py; const tl = Math.hypot(tx,ty)||1; tx/=tl; ty/=tl;
     let nx = -ty, ny = tx;
     if (nx*(pts[k].px-f.cx) + ny*(pts[k].py-f.cy) < 0){ nx=-nx; ny=-ny; }
-    const r = rhoAt(pts[k].px + nx*1.4, pts[k].py + ny*1.4);   // just outside the wall
+    const r = rhoAt(pts[k].px + nx*1.4, pts[k].py + ny*1.4);   
     const cp = ((r-1)/3)/q;
     out.push({ xc: pts[k].xc, cp: isFinite(cp) ? cp : 0 });
   }
   return out;
 }
 
-let cpPrev = null;   // persistent smoothed arrays, for temporal denoising
+let cpPrev = null;   
 
-// Light [1,2,1] smoothing along the chord to kill station-to-station speckle.
 function smoothCpSpatial(arr){
   const n = arr.length, out = new Array(n);
   for (let k = 0; k < n; k++){
@@ -2260,11 +2078,10 @@ function computeCp(){
   const up = smoothCpSpatial(surfaceCp(f, +1));
   const lo = smoothCpSpatial(surfaceCp(f, -1));
 
-  // Temporal blend into the persistent arrays so the curve is steady, not jittery.
   if (!cpPrev || cpPrev.upper.length !== up.length){
     cpPrev = { upper: up, lower: lo };
   } else {
-    const a = 0.15;   // lower = smoother / slower to respond
+    const a = 0.15;   
     for (let k = 0; k < up.length; k++){
       cpPrev.upper[k] = { xc: up[k].xc, cp: cpPrev.upper[k].cp*(1-a) + up[k].cp*a };
       cpPrev.lower[k] = { xc: lo[k].xc, cp: cpPrev.lower[k].cp*(1-a) + lo[k].cp*a };
@@ -2279,7 +2096,7 @@ function drawCp(){
   cpx.font = `${10*DPR}px "IBM Plex Mono", monospace`;
   cpx.fillStyle = 'rgba(107,120,143,0.8)';
 
-  const yTop = 3.0, yBot = -1.2;                 // -Cp range (suction up)
+  const yTop = 3.0, yBot = -1.2;                 
   const X = xc  => mL + xc*(PW-mL-mR);
   const Y = ncp => mT + (1-(ncp-yBot)/(yTop-yBot))*(PH-mT-mB);
 
@@ -2305,12 +2122,11 @@ function drawCp(){
     }
     cpx.stroke();
   };
-  trace(cpInfo.upper, 'rgba(255,180,84,0.95)');   // upper (amber)
-  trace(cpInfo.lower, 'rgba(95,220,255,0.90)');   // lower (cyan)
+  trace(cpInfo.upper, 'rgba(255,180,84,0.95)');   
+  trace(cpInfo.lower, 'rgba(95,220,255,0.90)');   
 }
 
 /* ================= MAIN LOOP ================= */
-// Main animation loop advances the solver, updates readouts, and redraws canvases.
 const clv = document.getElementById('clv'), cdv = document.getElementById('cdv'),
       ldv = document.getElementById('ldv'), rev = document.getElementById('rev'),
       fpsv = document.getElementById('fpsv'), hint = document.getElementById('hint'),
@@ -2373,7 +2189,6 @@ function updateKinematics() {
   const t_sec = parseFloat(pitchTimeEl.value) || 0.6;
   const pitchRate = (8 / Math.max(0.1, t_sec)) / 60; 
 
-  // Main Wing Pitch
   if (Math.abs(aoa - targetAoa) > 0.05) {
     let step = Math.sign(targetAoa - aoa) * Math.min(pitchRate, Math.abs(targetAoa - aoa));
     aoa += step;
@@ -2383,10 +2198,9 @@ function updateKinematics() {
   } else if (aoa !== targetAoa) {
     aoa = targetAoa;
     needsRebuild = true;
-    isPitching = true; // Still "pitching" on the snap frame so it doesn't hard-reset graph averages
+    isPitching = true; 
   }
 
-  // Flap Angle Pitch
   if (Math.abs(flapAngle - targetFlapAngle) > 0.05) {
     let step = Math.sign(targetFlapAngle - flapAngle) * Math.min(pitchRate, Math.abs(targetFlapAngle - flapAngle));
     flapAngle += step;
@@ -2398,7 +2212,6 @@ function updateKinematics() {
     isPitching = true;
   }
 
-  // Slat Angle Pitch
   if (Math.abs(slatAngle - targetSlatAngle) > 0.05) {
     let step = Math.sign(targetSlatAngle - slatAngle) * Math.min(pitchRate, Math.abs(targetSlatAngle - slatAngle));
     slatAngle += step;
@@ -2410,14 +2223,10 @@ function updateKinematics() {
     isPitching = true;
   }
 
-  // F1 DRS Flap Pitch
-  // DRS uses DRS_TRANSITION_TIME.
-  // It still animates smoothly, but it does not use the user-selected AOA transition time.
   if (drsMoving) {
     const elapsed = (performance.now() - drsStartTime) / 1000;
     const t = Math.min(1, elapsed / DRS_TRANSITION_TIME);
 
-    // Smooth but fast movement: avoids a harsh snap.
     const smoothT = t * t * (3 - 2 * t);
 
     currentDrsAngle = drsStartAngle + (targetDrsAngle - drsStartAngle) * smoothT;
@@ -2450,7 +2259,6 @@ function frame(now){
 
   fps = fps*0.92 + (1000/Math.max(dt,1))*0.08;
 
-  // Auto-adjust solver work per frame to balance smoothness and performance.
   if (dt > 34 && stepsPerFrame > qMin) stepsPerFrame--;
   else if (dt < 18 && stepsPerFrame < qMax) stepsPerFrame++;
 
@@ -2479,7 +2287,7 @@ function frame(now){
       initParticles();
       smokeCx.clearRect(0, 0, W, H);
       
-      resetGraphsAndAverages(); // Clear memory to stop NaNs from poisoning Canvas
+      resetGraphsAndAverages(); 
 
       hint.textContent = 'flow reset — try higher viscosity or lower speed';
       clearTimeout(hintT);
@@ -2487,25 +2295,17 @@ function frame(now){
     }
 
     if (forceSamples > 0 && barList.length){
-      // 1. Dimensionless coefficients (LBM scale), raw this frame.
       const Lforce = bodyType === 'cyl' ? 2*ydim*0.11 : chord;
       const q = 0.5 * u0 * u0 * Lforce;
       const cl = (-Fy/forceSamples)/q;
       const cd = ( Fx/forceSamples)/q;
 
-      // 2. Smooth the coefficients first, then derive everything (HUD, graphs and
-      //    the Newton readout) from the smoothed values so it is all denoised.
       smCl = smCl*0.95 + cl*0.05;
       smCd = smCd*0.95 + cd*0.05;
       longSmCl = (longSmCl === 0) ? cl : longSmCl*0.99 + cl*0.01;
       longSmCd = (longSmCd === 0) ? cd : longSmCd*0.99 + cd*0.01;
 
-      // 3. Real-world force estimate (Newtons) on a 1 m x 1 m section, from the
-      //    SMOOTHED coefficients. Referenced to AIR (1 atm, 20 C) regardless of the
-      //    fluid preset: the preset only changes the flow's viscosity / Reynolds
-      //    number, and scaling by e.g. water density here produced absurd 100k+ N
-      //    values. So this is an air-equivalent reading.
-      const q_real = 0.5 * 1.204 * (velocityMS * velocityMS);   // Pa (air)
+      const q_real = 0.5 * 1.204 * (velocityMS * velocityMS);   
       const liftEl = document.getElementById('liveLiftN');
       const dragEl = document.getElementById('liveDragN');
       if (liftEl) liftEl.textContent = (smCl * q_real).toFixed(1);
@@ -2556,7 +2356,6 @@ function frame(now){
 }
 
 /* ================= CONTROLS ================= */
-// UI controls update the solver state immediately.
 const aoaEl = document.getElementById('aoa'), aoaInput = document.getElementById('aoaInput');
 const flapAoaEl = document.getElementById('flapAoa'), flapAoavEl = document.getElementById('flapAoav');
 const slatAoaEl = document.getElementById('slatAoa'), slatAoavEl = document.getElementById('slatAoav');
@@ -2586,7 +2385,6 @@ function setAoaTransitionEnabled(enabled){
   btnPitchSnap.disabled = !enabled;
 }
 
-// Pitch Transition Controls
 pitchTimeEl.addEventListener('input', () => {
   pitchTimeVEl.textContent = parseFloat(pitchTimeEl.value).toFixed(1) + ' s';
 });
@@ -2618,7 +2416,6 @@ function clearUPresets(){
   });
 }
 
-// Sync exact input box to main slider, with alert and clamp constraints
 aoaInput.addEventListener('change', () => {
   let val = parseFloat(aoaInput.value);
   if (isNaN(val)) {
@@ -2637,14 +2434,12 @@ aoaInput.addEventListener('change', () => {
   recomputeVisc();
 });
 
-// Trigger change event when Enter is pressed
 aoaInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     aoaInput.blur();
   }
 });
 
-// Sync main slider to exact input box
 aoaEl.addEventListener('input', () => {
   targetAoa = parseFloat(aoaEl.value);
   aoaInput.value = targetAoa.toFixed(1);
@@ -2680,7 +2475,6 @@ spdEl.addEventListener('input', () => {
   updateSpeedFromMs(parseFloat(spdEl.value), {clearPreset: true});
 });
 
-// Presets are m/s values. They map back to u0, so the LBM physics stays unchanged.
 document.getElementById('uPresets').addEventListener('click', e => {
   const b = e.target.closest('.chip');
   if (!b || !b.dataset.ms) return;
@@ -2694,13 +2488,6 @@ document.getElementById('uPresets').addEventListener('click', e => {
   });
 });
 
-// Apply the user viscosity plus a speed-based numerical-stability floor.
-// The floor is a function of SPEED ONLY (see nuFloorSpeed) — it is intentionally
-// independent of angle of attack so the Reynolds number stays fixed while alpha
-// is swept and stall can develop naturally. Bluff bodies get a little extra
-// (still speed-based, still alpha-independent) because their wide wakes are
-// harder on the solver.
-// FIX: Lowered base numerical stability floor to align with new viscosity settings.
 function recomputeVisc(){
   const bodyK = (bodyType === 'cyl' || bodyType === 'plate') ? 1.4 : 1.0;
   const floor = 0.0008 + bodyK*(nuFloorSpeed(u0) - 0.0008);
@@ -2727,10 +2514,9 @@ function updateFluidTag(){
   fluidTag.textContent = (nu > nuSlider + 1e-6) ? 'like: ' + name + ' (floored)' : 'like: ' + name;
 }
 
-// FIX: Adjusted slider to viscosity mapping to allow reaching lower viscosities for thin boundary layers.
 function setVisc(){
   const t = parseInt(viscEl.value)/100;
-  nuSlider = 0.0008 + t*0.0292; // Adjusted floor
+  nuSlider = 0.0008 + t*0.0292; 
   recomputeVisc();
 }
 
@@ -2777,7 +2563,6 @@ function syncPressed(sel){
   document.querySelectorAll(sel).forEach(c => c.setAttribute('aria-pressed', c.classList.contains('on')));
 }
 
-// Convert a 4-digit NACA code into camber, camber position, and thickness.
 function applyCustomNaca(){
   const code = nacaIn.value.trim();
 
@@ -2809,7 +2594,6 @@ document.getElementById('nacaGo').addEventListener('click', applyCustomNaca);
 nacaIn.addEventListener('input', () => { nacaIn.value = nacaIn.value.replace(/\D/g, ''); });
 nacaIn.addEventListener('keydown', e => { if (e.key === 'Enter') applyCustomNaca(); });
 
-// Handle body type changes
 document.getElementById('bodies').addEventListener('click', e => {
   const b = e.target.closest('.chip');
   if (!b || !b.dataset.b) return;
@@ -2820,26 +2604,22 @@ document.getElementById('bodies').addEventListener('click', e => {
 
   bodyType = b.dataset.b;
 
-  // Toggle Visibility for F1 vs Regular Wings
   if (bodyType === 'f1wing') {
     rowConfig.classList.add('hidden');
     rowF1.classList.remove('hidden');
     rowFlap.classList.add('hidden');
     rowSlat.classList.add('hidden');
     
-    // 🔒 LOCK AOA TO 4 DEGREES
     aoa = 4;
     targetAoa = 4;
     currentOmega = 0;
     aoaEl.value = 4;
     aoaInput.value = "4.0";
     
-    // Disable and dim the Target α slider and text input
     aoaEl.disabled = true;
     aoaInput.disabled = true;
     aoaEl.style.opacity = '0.4';
     aoaInput.style.opacity = '0.4';
-    // F1 uses fixed DRS_TRANSITION_TIME, so AOA transition controls are disabled.
     setAoaTransitionEnabled(false);
     
   } else if (!isWing() || bodyType === 'plate') {
@@ -2849,7 +2629,6 @@ document.getElementById('bodies').addEventListener('click', e => {
     rowSlat.classList.add('hidden');
     configMode = 'single';
     
-    // 🔓 UNLOCK AOA
     aoaEl.disabled = false;
     aoaInput.disabled = false;
     aoaEl.style.opacity = '1';
@@ -2862,7 +2641,6 @@ document.getElementById('bodies').addEventListener('click', e => {
     rowF1.classList.add('hidden');
     updateConfigVisibility();
     
-    // 🔓 UNLOCK AOA
     aoaEl.disabled = false;
     aoaInput.disabled = false;
     aoaEl.style.opacity = '1';
@@ -2877,7 +2655,6 @@ document.getElementById('bodies').addEventListener('click', e => {
   updateHint();
 });
 
-// Handle config multi-element changes
 document.getElementById('configs').addEventListener('click', e => {
   const b = e.target.closest('.chip');
   if (!b || !b.dataset.c) return;
@@ -2911,12 +2688,10 @@ function updateConfigVisibility() {
   }
 }
 
-// F1 DRS Events
 const btnDrs = document.getElementById('btnDrs');
 const btnDrsMode = document.getElementById('btnDrsMode');
 
 btnDrs.addEventListener('click', () => {
-  // This button only opens/closes DRS.
   drsOpen = !drsOpen;
 
   btnDrs.classList.toggle('on', drsOpen);
@@ -2924,7 +2699,6 @@ btnDrs.addEventListener('click', () => {
 
   targetDrsAngle = getDrsTargetAngle();
 
-  // Animate DRS using fixed DRS_TRANSITION_TIME, not snap.
   startDrsTransition();
 
   rebuildBody(true, false);
@@ -2932,7 +2706,6 @@ btnDrs.addEventListener('click', () => {
 });
 
 btnDrsMode.addEventListener('click', () => {
-  // This button only changes the DRS movement method.
   f1DrsMode = f1DrsMode === 'normal' ? 'pivot180' : 'normal';
 
   const is180 = f1DrsMode === 'pivot180';
@@ -2942,10 +2715,8 @@ btnDrsMode.addEventListener('click', () => {
     ? 'METHOD: Macarena Wing Style'
     : 'METHOD: NORMAL';
 
-  // If DRS is already open, changing method moves it to the selected open position.
   targetDrsAngle = getDrsTargetAngle();
 
-  // Animate the method change using the same fixed DRS_TRANSITION_TIME.
   startDrsTransition();
 
   rebuildBody(true, false);
@@ -3012,11 +2783,10 @@ document.getElementById('btnReset').addEventListener('click', () => {
   initFluid();
   initParticles();
   smokeCx.clearRect(0, 0, W, H);
-  resetGraphsAndAverages(); // Explicit clear
+  resetGraphsAndAverages(); 
 });
 
 /* ================= EXPORT ================= */
-// Export helpers create files directly in the browser.
 function stamp(){
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
@@ -3036,7 +2806,6 @@ function downloadBlob(name, type, content){
   setTimeout(() => URL.revokeObjectURL(url), 800);
 }
 
-// CSV export writes the collected lift/drag curve data.
 function exportLiftCurveCsv(){
   const rows = [['aoa_deg','cl','cd','ld','body','u0_lattice','nu_effective','timestamp_iso']];
   const pts = [...pHist];
@@ -3069,7 +2838,6 @@ function exportLiftCurveCsv(){
   );
 }
 
-// Snapshot combines the visible layers into one PNG.
 function exportSnapshot(){
   drawColorbar();
 
@@ -3130,7 +2898,6 @@ document.getElementById('btnShot').addEventListener('click', exportSnapshot);
 document.getElementById('btnCsv').addEventListener('click', exportLiftCurveCsv);
 
 /* ================= POINTER INPUT ================= */
-// Clicking or dragging injects extra smoke near the pointer.
 let puffing = false;
 let pointerEvent = null;
 const stageEl = document.getElementById('stage');
@@ -3168,7 +2935,6 @@ stageEl.addEventListener('pointerup', () => { puffing = false; pointerEvent = nu
 stageEl.addEventListener('pointercancel', () => { puffing = false; pointerEvent = null; });
 
 /* ================= KEYBOARD ================= */
-// Keyboard shortcuts mirror the main controls for faster testing.
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('button, input')) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -3196,7 +2962,7 @@ window.addEventListener('keydown', e => {
   }
   else if (k === 'ArrowLeft' || k === 'ArrowRight'){
     e.preventDefault();
-    if (bodyType === 'f1wing') return; // <-- Safety catch to block keyboard changes on F1 wing
+    if (bodyType === 'f1wing') return; 
     const d = (k === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 5 : .5);
     aoaEl.value = Math.min(45, Math.max(-45, parseFloat(aoaEl.value) + d));
     aoaEl.dispatchEvent(new Event('input'));
@@ -3204,7 +2970,6 @@ window.addEventListener('keydown', e => {
 });
 
 /* ================= START ================= */
-// Initial UI sync, solver setup, and animation start.
 aoaInput.value = targetAoa.toFixed(1);
 updateSpeedFromMs(velocityMS, {reset: false, clearPreset: false});
 
